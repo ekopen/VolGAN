@@ -20,7 +20,7 @@ plt.rc('xtick', labelsize=12)
 plt.rc('ytick', labelsize=12)
 plt.rcParams.update({'font.size': 12})
 
-datapath = "..\data\swaption_atm_vol_full.xlsx"
+datapath = "data\swaption_atm_vol_full.xlsx"
 ### datapath is the location of the implied vol data downloaded from the OptionMetrics Implied Volatility Surface File
 surfacepath = "surfacepath"
 ###surfacepath is the location of the "surfacestransform" file containing daily implied vols on the fixed (m,\tau grid in the vector form)
