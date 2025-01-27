@@ -26,7 +26,7 @@ import yfinance as yf
 from datetime import datetime
 from statsmodels.tsa.stattools import acf, pacf
 from scipy.interpolate import interp1d
-from scipy import arange, array, exp
+from numpy import arange, array, exp
 
 
 #Calculating arbitrage penalties
