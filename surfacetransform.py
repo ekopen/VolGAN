@@ -8,7 +8,6 @@ swaption_vol_df = pd.read_excel(swaption_vol_path)
 # Display the structure of the data
 print(swaption_vol_df.head())
 
-
 # Extract necessary columns
 maturities = ["1Y", "2Y", "3Y", "4Y", "5Y", "6Y", "7Y", "8Y", "9Y", "10Y"]
 tenors = ["1M", "3M", "6M", "1Y", "2Y", "5Y"]
@@ -33,4 +32,4 @@ for date in swaption_vol_df["Ticker"].unique():
 # Convert to a structured NumPy array
 surfaces_transform = np.array([surfaces_dict[date] for date in surfaces_dict])
 
-np.save("\data\surfacestransform.npy", surfaces_transform)
+# np.save("\data\surfacestransform.npy", surfaces_transform)
