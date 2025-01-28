@@ -6,7 +6,7 @@ import seaborn as sns
 import warnings
 warnings.filterwarnings("ignore")
 
-def maturity_tenor(filename = "swaption_atm_vol_full.xlsx"):
+def maturity_tenor(filename):
     mat_n_ten = pd.read_excel(filename, nrows=2)
     new_header = mat_n_ten.iloc[1]
     
