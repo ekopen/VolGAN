@@ -89,4 +89,14 @@ def plot_swaption_surface(date, filename = "swaption_atm_vol_full.xlsx"):
     ax.set_title(f'Swaption Volatility Surface on {date}')
 
     plt.show()
+
+def returns_data(date, filename = "forward_sofr_swap_full.xlsx"):
+    volatilites = pd.read_excel(filename, skiprows = 2).set_index("Ticker").pct_change()
+    mat_n_ten = maturity_tenor(filename).T
+    d1 = pd.DataFrame(volatilites.loc[date])
+    
+    df = d1.join(mat_n_ten)
+    df.columns = ["Values", "Tenor", "Maturity"]
+    
+    return df
     
