@@ -51,6 +51,5 @@ def volatility_data(filename, date):
 
 def tabular_form(filename, date):
     df = volatility_data(filename, date)
-    
     grid = df.pivot(index='Tenor', columns="Maturity", values='Values')
     return grid
