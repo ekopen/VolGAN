@@ -49,6 +49,11 @@ def volatility_data(filename, date):
     
     return df
     
+def tabular_form(filename, date):
+    df = volatility_data(filename, date)
+    grid = df.pivot(index='Tenor', columns="Maturity", values='Values')
+    return grid
+
 def scatter_swaption_surface(filename, date):
     df = volatility_data(filename, date)
     fig = plt.figure(figsize=(10, 8))
@@ -86,7 +91,4 @@ def plot_swaption_surface(filename, date):
     ax.set_title(f'Swaption Volatility Surface on {date}')
 
     plt.show()
-def tabular_form(filename, date):
-    df = volatility_data(filename, date)
-    grid = df.pivot(index='Tenor', columns="Maturity", values='Values')
-    return grid
+    
