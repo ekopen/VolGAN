@@ -71,7 +71,7 @@ def scatter_swaption_surface(date, filename = "swaption_atm_vol_full.xlsx"):
 
     ax.set_title(f'Swaption Volatility Surface on {date}')
     
-    plt.show
+    plt.show()
 
 def plot_swaption_surface(date, filename = "swaption_atm_vol_full.xlsx"):
     grid = tabular_volatility_form(date, filename)
