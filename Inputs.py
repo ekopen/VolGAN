@@ -100,7 +100,7 @@ Section 2: Returns
 
 #Potentially need to change it to log returns
 def returns_data(date, filename = "forward_sofr_swap_full.xlsx"):
-    volatilites = pd.read_excel(filename, skiprows = 2).set_index("Ticker").pct_change()
+    volatilites = pd.read_excel(filename, skiprows = 2).set_index("Ticker").sort_index().pct_change()
     mat_n_ten = maturity_tenor(filename).T
     d1 = pd.DataFrame(volatilites.loc[date])
     
@@ -119,7 +119,7 @@ Section 3: Realized Volatility
 """
 #Potentially need to use log returns
 def realized_volatility_data(date, nperiods, ann, filename = "forward_sofr_swap_full.xlsx"):
-    volatilites = pd.read_excel(filename, skiprows = 2).set_index("Ticker").pct_change().rolling(nperiods).std()
+    volatilites = pd.read_excel(filename, skiprows = 2).set_index("Ticker").sort_index().pct_change().rolling(nperiods).std()
     mat_n_ten = maturity_tenor(filename).T
     d1 = pd.DataFrame(volatilites.loc[date] * np.sqrt(ann))
     
