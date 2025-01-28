@@ -36,6 +36,10 @@ def maturity_tenor(filename):
     df = df[["Tenor", "Mat"]]
     df = df.T
     return df
+    
+"""
+Section 1: Volatility Surface
+"""
 
 def volatility_data(date, filename = "swaption_atm_vol_full.xlsx"):
     volatilites = pd.read_excel(filename, skiprows = 2).set_index("Ticker")
@@ -48,12 +52,12 @@ def volatility_data(date, filename = "swaption_atm_vol_full.xlsx"):
     return df
     
 def tabular_volatility_form(date, filename = "swaption_atm_vol_full.xlsx"):
-    df = volatility_data(filename, date)
+    df = volatility_data(date, filename)
     grid = df.pivot(index='Tenor', columns="Maturity", values='Values')
     return grid
 
 def scatter_swaption_surface(date, filename = "swaption_atm_vol_full.xlsx"):
-    df = volatility_data(filename, date)
+    df = volatility_data(date, filename)
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
 
@@ -70,7 +74,7 @@ def scatter_swaption_surface(date, filename = "swaption_atm_vol_full.xlsx"):
     plt.show
 
 def plot_swaption_surface(date, filename = "swaption_atm_vol_full.xlsx"):
-    grid = tabular_form(filename, date)
+    grid = tabular_form(date, filename)
 
     X, Y = np.meshgrid(grid.columns, grid.index)
     Z = grid.values
@@ -90,6 +94,10 @@ def plot_swaption_surface(date, filename = "swaption_atm_vol_full.xlsx"):
 
     plt.show()
 
+"""
+Section 2: Returns
+"""
+
 def returns_data(date, filename = "forward_sofr_swap_full.xlsx"):
     volatilites = pd.read_excel(filename, skiprows = 2).set_index("Ticker").pct_change()
     mat_n_ten = maturity_tenor(filename).T
@@ -99,4 +107,8 @@ def returns_data(date, filename = "forward_sofr_swap_full.xlsx"):
     df.columns = ["Values", "Tenor", "Maturity"]
     
     return df
-    
+
+def tabular_returns_form(date, filename = "forward_sofr_swap_full.xlsx"):
+    df = returns_data(date, filename)
+    grid = df.pivot(index='Tenor', columns="Maturity", values='Values')
+    return grid
