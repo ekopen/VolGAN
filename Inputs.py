@@ -117,6 +117,7 @@ def tabular_returns_form(date, filename = "forward_sofr_swap_full.xlsx"):
 """
 Section 3: Realized Volatility
 """
+#Potentially need to use log returns
 def realized_volatility_data(date, nperiods, ann, filename = "forward_sofr_swap_full.xlsx"):
     volatilites = pd.read_excel(filename, skiprows = 2).set_index("Ticker").pct_change().rolling(nperiods).std()
     mat_n_ten = maturity_tenor(filename).T
