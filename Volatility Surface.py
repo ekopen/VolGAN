@@ -48,7 +48,44 @@ def volatility_data(filename, date):
     df.columns = ["Values", "Tenor", "Maturity"]
     
     return df
+    
+def scatter_swaption_surface(filename, date):
+    df = volatility_data(filename, date)
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
 
+    x = df['Tenor']
+    y = df['Maturity']
+    z = df['Values']
+    ax.scatter(x, y, z, c=z, cmap='viridis', marker='o')
+    ax.set_xlabel('Tenor')
+    ax.set_ylabel('Maturity')
+    ax.set_zlabel('Implied Volatility')
+
+    ax.set_title(f'Swaption Volatility Surface on {date}')
+    
+    plt.show
+
+def plot_swaption_surface(filename, date):
+    grid = tabular_form(filename, date)
+
+    X, Y = np.meshgrid(grid.columns, grid.index)
+    Z = grid.values
+
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+
+    surf = ax.plot_surface(X, Y, Z, cmap='viridis', edgecolor='k')
+
+    fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10)
+
+    ax.set_xlabel('Maturity')
+    ax.set_ylabel('Tenor')
+    ax.set_zlabel('Implied Volatility')
+
+    ax.set_title(f'Swaption Volatility Surface on {date}')
+
+    plt.show()
 def tabular_form(filename, date):
     df = volatility_data(filename, date)
     grid = df.pivot(index='Tenor', columns="Maturity", values='Values')
