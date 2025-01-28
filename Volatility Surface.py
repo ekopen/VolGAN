@@ -6,9 +6,7 @@ import seaborn as sns
 import warnings
 warnings.filterwarnings("ignore")
 
-filename = "swaption_atm_vol_full.xlsx"
-
-def maturity_tenor(filename):
+def maturity_tenor(filename = "swaption_atm_vol_full.xlsx"):
     mat_n_ten = pd.read_excel(filename, nrows=2)
     new_header = mat_n_ten.iloc[1]
     
@@ -39,7 +37,7 @@ def maturity_tenor(filename):
     df = df.T
     return df
 
-def volatility_data(filename, date):
+def volatility_data(filename = "swaption_atm_vol_full.xlsx", date):
     volatilites = pd.read_excel(filename, skiprows = 2).set_index("Ticker")
     mat_n_ten = maturity_tenor(filename).T
     d1 = pd.DataFrame(volatilites.loc[date])
@@ -49,12 +47,12 @@ def volatility_data(filename, date):
     
     return df
     
-def tabular_form(filename, date):
+def tabular_volatility_form(filename = "swaption_atm_vol_full.xlsx", date):
     df = volatility_data(filename, date)
     grid = df.pivot(index='Tenor', columns="Maturity", values='Values')
     return grid
 
-def scatter_swaption_surface(filename, date):
+def scatter_swaption_surface(filename = "swaption_atm_vol_full.xlsx", date):
     df = volatility_data(filename, date)
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
@@ -71,7 +69,7 @@ def scatter_swaption_surface(filename, date):
     
     plt.show
 
-def plot_swaption_surface(filename, date):
+def plot_swaption_surface(filename = "swaption_atm_vol_full.xlsx", date):
     grid = tabular_form(filename, date)
 
     X, Y = np.meshgrid(grid.columns, grid.index)
