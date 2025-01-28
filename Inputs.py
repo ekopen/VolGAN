@@ -98,9 +98,8 @@ def plot_swaption_surface(date, filename = "swaption_atm_vol_full.xlsx"):
 Section 2: Returns
 """
 
-#Potentially need to change it to log returns
 def returns_data(date, filename = "forward_sofr_swap_full.xlsx"):
-    volatilites = pd.read_excel(filename, skiprows = 2).set_index("Ticker").sort_index().pct_change()
+    volatilites = np.log(pd.read_excel(filename, skiprows = 2).set_index("Ticker").sort_index()).diff()
     mat_n_ten = maturity_tenor(filename).T
     d1 = pd.DataFrame(volatilites.loc[date])
     
@@ -117,9 +116,9 @@ def tabular_returns_form(date, filename = "forward_sofr_swap_full.xlsx"):
 """
 Section 3: Realized Volatility
 """
-#Potentially need to use log returns
+
 def realized_volatility_data(date, nperiods, ann, filename = "forward_sofr_swap_full.xlsx"):
-    volatilites = pd.read_excel(filename, skiprows = 2).set_index("Ticker").sort_index().pct_change().rolling(nperiods).std()
+    volatilites = np.log(pd.read_excel(filename, skiprows = 2).set_index("Ticker").sort_index()).diff().rolling(nperiods).std()
     mat_n_ten = maturity_tenor(filename).T
     d1 = pd.DataFrame(volatilites.loc[date] * np.sqrt(ann))
     
