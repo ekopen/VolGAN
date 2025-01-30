@@ -140,7 +140,7 @@ def plot_swaption_surface(date, filename = "swaption_atm_vol_full.xlsx"):
 """
 Section 2: Returns
 Just using today's rate minus today's rate for returns
-Not using Log Returns
+Not using Log Returns - using Normal Model
 """
 
 #Changed to difference
@@ -162,7 +162,7 @@ def tabular_returns_form(date, filename = "forward_sofr_swap_full.xlsx"):
 """
 Section 3: Realized Volatility
 Just using today's rate minus today's rate for returns
-Not using Log Returns
+Not using Log Returns - using Normal Model
 """
 
 #In the paper, they use nperiods = 20 and ann = 252
