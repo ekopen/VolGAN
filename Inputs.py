@@ -163,6 +163,7 @@ def tabular_returns_form(date, filename = "forward_sofr_swap_full.xlsx"):
 Section 3: Realized Volatility
 Just using today's rate minus today's rate for returns
 Not using Log Returns - using Normal Model
+Also note that we may have to make the switch to the 10y year rate if we have problems with dimensionality
 """
 
 #In the paper, they use nperiods = 20 and ann = 252
