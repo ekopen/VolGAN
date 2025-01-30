@@ -52,11 +52,13 @@ def SwapsData(datapath, surfacespath):
     
     taus, tenors = np.meshgrid(tau,tenor)
 
-    # NOTE: each COLUMN in log_rtn is the time series of realised vol of a specific underlying asset with specific tenor and maturity
-    # Asset is in each ROW 
-    # shape (456, 144)
-    # Same case for surfaces_transform
-    # also shape (456, 144)
+    # NOTE: each COLUMN in log_rtn is the full time series of realised vol of a specific underlying asset with specific tenor and maturity
+    # The set of assets with differing tenors and maturity for a specific date can be found in each ROW 
+    # This means the COLUMN INDEX is a specific asset with some tenor and maturity 
+    # The ROW INDEX is the date / time series of realised vol of that asset
+    # This is shape (456, 144)
+    # Same case for surfaces_transform, it is also shape (456, 144)
+    
     return surfaces_transform, log_rtn, tenor, tau, tenors, taus, dates_dt
 
     # Originally the penalty matrices in m and tau
@@ -91,8 +93,9 @@ def DataPreprocesssing(datapath, surfacepath):
 
     for i in range(len(realised_vol_tm1)):
             realised_vol_tm1[i] = np.sqrt(252 / 21) * np.sqrt(log_rtn.iloc[i:(i+21)] ** 2).sum()
-    # COLUMN index is a specific asset with some tenor and maturity, row index is the date / time series of realised vol of that asset
-    # shape (434, 144)
+    # COLUMN INDEX is a specific asset with some tenor and maturity 
+    # ROW INDEX is the date / time series of realised vol of that asset
+    # This has shape (434, 144)
 
     #shift the time
     dates_t = dates_dt[22:]
