@@ -15,33 +15,48 @@ import matplotlib.pyplot as plt
 
 import VolGAN
 
+# 1. Setting Plotting Parameters
+
 plt.rcParams['figure.figsize'] = [15.75, 9.385]
 plt.rc('xtick', labelsize=12)
 plt.rc('ytick', labelsize=12)
 plt.rcParams.update({'font.size': 12})
 
-datapath = "datapath"
+
+# 2. Loads implied volatility surfaces and other market-related data
+
+datapath = "data\swaption_atm_vol_full.xlsx"
 ### datapath is the location of the implied vol data downloaded from the OptionMetrics Implied Volatility Surface File
 surfacepath = "surfacepath"
 ###surfacepath is the location of the "surfacestransform" file containing daily implied vols on the fixed (m,\tau grid in the vector form)
 surfaces_transform, prices, prices_prev, log_rtn, m, tau, ms, taus, dates_dt = VolGAN.SPXData(datapath, surfacepath)
+
+# 3. Computing and Plotting Realized Volatility
 
 realised_vol_t = np.zeros(len(log_rtn)-21)
 for i in range(len(realised_vol_t)):
     realised_vol_t[i] = np.sqrt(252 / 21) * np.sqrt(np.sum(log_rtn[i:(i+21)]**2))
 
 plt.plot(dates_dt[21:],realised_vol_t)
+
+# 4. Preparing Time-Shifted Data
+
 #shift the time
 dates_t = dates_dt[22:]
 #log-return at t, t-1, t-2
 log_rtn_t = log_rtn[22:]
 log_rtn_tm1 = log_rtn[21:-1]
 log_rtn_tm2 = log_rtn[20:-2]
+
+# 5. Transforming log Implied Volatility Data
+
 #log implied vol at t and t-1
 log_iv_t = np.log(surfaces_transform[22:])
 log_iv_tm1 = np.log(surfaces_transform[21:-1])
 #we want to simulate the increment at time t (t - t-1)
 log_iv_inc_t = log_iv_t - log_iv_tm1
+
+# 6. Returns trained models and data for further analysis
 
 tr = 0.85
 noise_dim = 32
@@ -53,23 +68,35 @@ val = True
 
 gen, gen_opt, disc, disc_opt, true_train,true_test, condition_train, condition_test, dates_t,  m, tau, ms, taus  = VolGAN.VolGAN(datapath,surfacepath, tr, noise_dim = noise_dim, hidden_dim = hidden_dim, n_epochs = n_epochs,n_grad = n_grad, lrg = 0.0001, lrd = 0.0001, batch_size = 100, device = 'cpu')
 
+# 7. Computing arbitrage penalty matrices for implied volatility surfaces.
+# Using these penalties to test and enforce arbitrage-free conditions on 
+# generated volatility surfaces in a Monte Carlo setting.
 
-ntr = true_train.shape[0]
-B = 10000
-dtm = tau * 365
-#calculate the panlaty matrices
-mP_t,mP_k,mPb_K = VolGAN.penalty_mutau_tensor(m,dtm,device)
-m_t = torch.tensor(ms,dtype=torch.float,device=device)
-t_t = torch.tensor(taus, dtype= torch.float, device=device)
-n_test = true_test.shape[0]
-tots_test = np.zeros((n_test,B))
+ntr = true_train.shape[0]  # Number of training samples
+B = 10000  # Number of Monte Carlo samples
+dtm = tau * 365  # Convert time-to-maturity from years to days
+
+# TODO: Compute arbitrage penalty matrices
+mP_t, mP_k, mPb_K = VolGAN.penalty_mutau_tensor(m, dtm, device)
+
+# Convert market variables to tensors
+m_t = torch.tensor(ms, dtype=torch.float, device=device)  # Moneyness grid
+t_t = torch.tensor(taus, dtype=torch.float, device=device)  # Time-to-maturity grid
+n_test = true_test.shape[0]  # Number of test samples
+
+# Storage for arbitrage penalties
+tots_test = np.zeros((n_test, B))
+
+# Expand and repeat penalty matrices for batch testing
 Pks_t_test = mP_k.unsqueeze(0).repeat((n_test,1,1))
 Pkbs_t_test = mPb_K.unsqueeze(0).repeat((n_test,1,1))
 Ks_t_test = m_t.unsqueeze(0).repeat((n_test,1,1))
 ts_t_test = t_t.unsqueeze(0).repeat((n_test,1,1))
 ms_t_test = m_t.unsqueeze(0).repeat((n_test,1,1))
 
-gen.eval()
+# 8.
+
+gen.eval() # Set Generator to Evaluation Mode
 fk = torch.empty(size = (B,n_test,10,8))
 fk_ent = np.zeros((B, n_test, 80))
 fk_inc = np.zeros((B, n_test, 80))
@@ -95,8 +122,11 @@ with torch.no_grad():
         #calculating arbitrage penalties
         Pks_t_test = mP_k.unsqueeze(0).repeat((n_test,1,1))
         Pkbs_t_test = mPb_K.unsqueeze(0).repeat((n_test,1,1))
+        
+        # TODO: Compute Black-Scholes-based price for testing arbitrage
         BS = VolGAN.smallBS_tensor(ms_t_test[:,:,:],ts_t_test[:,:,:],fk[l,:,:,:],0)
 
+        # TODO: Calculate arbitrage penalty
         _,_,_,tot = VolGAN.arbitrage_penalty_tensor(BS,mP_t.unsqueeze(0).repeat((n_test,1,1)),Pks_t_test[:,:,:],Pkbs_t_test[:,:,:])
         tots_test[:,l] = tot.detach().numpy()
 #Check arbitrage penalties
