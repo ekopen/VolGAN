@@ -159,3 +159,36 @@ def DataPreprocesssing(datapath, surfacepath):
     # each asset at each time has the predicted annualized log return and log implied vol increment
 
     return true, condition, m_in,sigma_in, m_out, sigma_out, dates_t,  tenor, tau, tenors, taus
+
+def DataTrainTest(datapath,surfacepath, tr, device = 'cpu'):
+    """
+    function to split the data into train, test
+    tr are the proportions to use for testing
+    tr is specifically the percentage of data to use for training
+    """
+
+    true, condition, m_in,sigma_in, m_out, sigma_out, dates_t,  tenor, tau, tenors, taus = DataPreprocesssing(datapath, surfacepath)
+
+    data_tt = torch.from_numpy(m_in)
+    m_in = data_tt.to(torch.float).to(device)
+    data_tt = torch.from_numpy(m_out)
+    m_out = data_tt.to(torch.float).to(device)
+    data_tt = torch.from_numpy(sigma_in)
+    sigma_in = data_tt.to(torch.float).to(device)
+    data_tt = torch.from_numpy(sigma_out)
+    sigma_out = data_tt.to(torch.float).to(device)
+
+    n = true.shape[0]
+    data_tt = torch.from_numpy(true)
+    true_tensor = data_tt.to(torch.float).to(device)
+
+    data_tt = torch.from_numpy(condition)
+    condition_tensor = data_tt.to(torch.float).to(device)
+
+    true_train = true_tensor[0:int(tr * n), :, :]
+    true_test = true_tensor[int(tr * n):, :, :]
+
+    condition_train = condition_tensor[0:int(tr * n), :, :]
+    condition_test = condition_tensor[int(tr * n):, :, :]
+
+    return true_train, true_test, condition_train,  condition_test,  m_in,sigma_in, m_out, sigma_out, dates_t,  tenor, tau, tenors, taus
