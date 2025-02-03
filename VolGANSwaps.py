@@ -81,7 +81,7 @@ def SwapsData(datapath, surfacespath):
 
     return surfaces_transform, log_return, tenor, tau, tenors, taus, dates_dt
 
-def DataPreprocesssing(datapath, surfacepath):
+def DataPreprocesssing(datapath, surfacepath, vol_model = 'normal'):
     """
     function for preparing the data for VolGAN
     later to be split into train, val, test
@@ -111,12 +111,23 @@ def DataPreprocesssing(datapath, surfacepath):
     return_tm2 = 252 * returns.iloc[20:-2].values
     # COLUMN index is a specific asset with some tenor and maturity, row index is the date / time series of realised vol of that asset
 
-    # GET LOG IMPLIED VOLS
-    #log implied vol at t and t-1
-    log_iv_t = np.log(surfaces_transform[22:])
-    log_iv_tm1 = np.log(surfaces_transform[21:-1])
-    #we want to simulate the increment at time t (t - t-1)
-    log_iv_inc_t = log_iv_t - log_iv_tm1
+    # GET IMPLIED VOLS
+    #implied vol at t and t-1
+
+    # Note about volatility: if we are using normal model, then we can use the implied vol directly
+    # If we are using log-normal model, then we need to convert the implied vol to log implied vol
+    if vol_model == 'normal':
+        #implied vol at t
+        iv_t = surfaces_transform[22:]
+        #implied vol at t-1
+        iv_tm1 = surfaces_transform[21:-1]
+        iv_inc_t = iv_t - iv_tm1
+    elif vol_model == 'log':
+        log_iv_t = np.log(surfaces_transform[22:])
+        log_iv_tm1 = np.log(surfaces_transform[21:-1])
+        #we want to simulate the increment at time t (t - t-1)
+        log_iv_inc_t = log_iv_t - log_iv_tm1
+    
     # same here the time series dates are the rows, the COLUMN is a specific underlying asset with specific tenor and maturity 
     
     # SET UP NORMALIZATION PARAMETERS (I think this is used later in model training, it might be useful to keep)
@@ -132,44 +143,69 @@ def DataPreprocesssing(datapath, surfacepath):
     sigma_rv = np.std(realised_vol_tm1[0:100], axis=0)
     # shape (144,)
 
-    #log implied vol
-    m_liv = np.mean(log_iv_t[0:100], axis=0)
-    sigma_liv = np.std(log_iv_t[0:100], axis=0)
-    # shape (144,)
+    if vol_model == 'normal':
 
-    #log implied vol increment
-    m_liv_inc = np.mean(log_iv_inc_t[0:100], axis=0)
-    sigma_liv_inc = np.std(log_iv_inc_t[0:100], axis=0)
-    # shape (144,)
+        # normal implie vol
+        m_iv = np.mean(iv_t[0:100], axis=0)
+        sigma_iv = np.std(iv_t[0:100], axis=0)
 
-    m_in = np.concatenate((m_ret,m_ret,m_rv,m_liv))
-    sigma_in = np.concatenate((sigma_ret,sigma_ret,sigma_rv,sigma_liv))
+        # normal implied vol increment
+        m_iv_inc = np.mean(iv_inc_t[0:100], axis=0)
+        sigma_iv_inc = np.std(iv_inc_t[0:100], axis=0)
     
-    #the output of the generator is the return of SPX and increment of log-iv
-    m_out = np.concatenate((m_ret,m_liv_inc))
-    sigma_out = np.concatenate((sigma_ret,sigma_liv_inc))
-    
-    #condition for generator and discriminator
-    condition = np.concatenate((np.expand_dims(return_tm1,axis=2),np.expand_dims(return_tm2,axis=2),np.expand_dims(realised_vol_tm1,axis=2),np.expand_dims(log_iv_tm1, axis=2)),axis=2)
-    # shape (434, 144, 4)
-    # each asset at each time has the condition vector
+        m_in = np.concatenate((m_ret,m_ret,m_rv,m_iv))
+        sigma_in = np.concatenate((sigma_ret,sigma_ret,sigma_rv,sigma_iv))
+
+        m_out = np.concatenate((m_ret,m_iv_inc))
+        sigma_out = np.concatenate((sigma_ret,sigma_iv_inc))
+
+        condition = np.concatenate((np.expand_dims(return_tm1,axis=2),np.expand_dims(return_tm2,axis=2),np.expand_dims(realised_vol_tm1,axis=2),np.expand_dims(iv_tm1, axis=2)),axis=2)
+        # shape (434, 144, 4)
+        # each asset at each time has the condition vector
+
+    elif vol_model == 'log':
+
+        # log implied vol 
+        m_liv = np.mean(log_iv_t[0:100], axis=0)
+        sigma_liv = np.std(log_iv_t[0:100], axis=0)
+        # shape (144,)
+
+        #log implied vol increment
+        m_liv_inc = np.mean(log_iv_inc_t[0:100], axis=0)
+        sigma_liv_inc = np.std(log_iv_inc_t[0:100], axis=0)
+        # shape (144,)
+
+        m_in = np.concatenate((m_ret,m_ret,m_rv,m_liv))
+        sigma_in = np.concatenate((sigma_ret,sigma_ret,sigma_rv,sigma_liv))
+
+        m_out = np.concatenate((m_ret,m_liv_inc))
+        sigma_out = np.concatenate((sigma_ret,sigma_liv_inc))
+        
+        condition = np.concatenate((np.expand_dims(return_tm1,axis=2),np.expand_dims(return_tm2,axis=2),np.expand_dims(realised_vol_tm1,axis=2),np.expand_dims(log_iv_tm1, axis=2)),axis=2)    
+        # shape (434, 144, 4)
+        # each asset at each time has the condition vector
 
     #true: what we are trying to predict, increments at time t
     return_t_annualized = 252 * return_t
-    true = np.concatenate((np.expand_dims(return_t_annualized,axis=2),np.expand_dims(log_iv_inc_t, axis=2)),axis=2)
+
+    if vol_model == 'normal':
+        true = np.concatenate((np.expand_dims(return_t_annualized,axis=2),np.expand_dims(iv_inc_t, axis=2)),axis=2)
+    elif vol_model == 'log':
+        true = np.concatenate((np.expand_dims(return_t_annualized,axis=2),np.expand_dims(log_iv_inc_t, axis=2)),axis=2)
+    
     # shape (434, 144, 2)
     # each asset at each time has the predicted annualized log return and log implied vol increment
 
-    return true, condition, m_in,sigma_in, m_out, sigma_out, dates_t,  tenor, tau, tenors, taus
+    return true, condition, m_in, sigma_in, m_out, sigma_out, dates_t,  tenor, tau, tenors, taus
 
-def DataTrainTest(datapath,surfacepath, tr, device = 'cpu'):
+def DataTrainTest(datapath,surfacepath, tr, vol_model = 'normal', device = 'cpu'):
     """
     function to split the data into train, test
     tr are the proportions to use for testing
     tr is specifically the percentage of data to use for training
     """
 
-    true, condition, m_in,sigma_in, m_out, sigma_out, dates_t,  tenor, tau, tenors, taus = DataPreprocesssing(datapath, surfacepath)
+    true, condition, m_in,sigma_in, m_out, sigma_out, dates_t,  tenor, tau, tenors, taus = DataPreprocesssing(datapath, surfacepath, vol_model=vol_model)
 
     data_tt = torch.from_numpy(m_in)
     m_in = data_tt.to(torch.float).to(device)
@@ -194,3 +230,96 @@ def DataTrainTest(datapath,surfacepath, tr, device = 'cpu'):
     condition_test = condition_tensor[int(tr * n):, :, :]
 
     return true_train, true_test, condition_train,  condition_test,  m_in,sigma_in, m_out, sigma_out, dates_t,  tenor, tau, tenors, taus
+
+##############################
+##### MODEL ARCHITECTURE #####
+##############################
+
+class Generator(nn.Module):
+    '''
+    VolGAN generator
+    Generator Class
+    Values:
+        noise_dim: the dimension of the noise, a scalar
+        cond_dim: the dimension of the condition, a scalar
+        hidden_dim: the inner dimension, a scalar
+        output_dim: output dimension, a scalar
+    '''
+    def __init__(self, noise_dim,cond_dim, hidden_dim,output_dim, 
+                 mean_in = False, std_in = False, mean_out = False, std_out = False):
+        
+        super(Generator, self).__init__()
+
+        self.input_dim = noise_dim+cond_dim
+        self.cond_dim = cond_dim
+        self.hidden_dim = hidden_dim
+        self.output_dim = output_dim
+        self.noise_dim = noise_dim
+        self.mu_i = mean_in
+        self.std_i = std_in
+        self.mu_o = mean_out
+        self.std_o = std_out
+
+        #Add the modules
+   
+        self.linear1 = nn.Linear(in_features = self.input_dim, out_features = self.hidden_dim)
+        self.linear2 = nn.Linear(in_features = self.hidden_dim, out_features = self.hidden_dim * 2)
+        self.linear3 = nn.Linear(in_features = self.hidden_dim * 2, out_features = self.output_dim)
+        self.activation1 = nn.Softplus()
+        self.activation2 = nn.Softplus()
+        self.activation3 = nn.Sigmoid()
+       
+
+    def forward(self, noise,condition):
+        '''
+        Function for completing a forward pass of the generator:adding the noise and the condition separately
+        '''
+        #x = combine_vectors(noise.to(torch.float),condition.to(torch.float),2)
+        #condition: S_t-1, sigma_t-1, r_t-1, implied vol_t-1
+        #out: increment in r_t, increment in implied vol _t
+        
+        # condition = (condition - self.mu_i) / self.std_i
+        out = torch.cat([noise,condition],dim=-1).to(torch.float)
+        out = self.linear1(out)
+        out = self.activation1(out)
+        out = self.linear2(out)
+        out = self.activation2(out)
+        out = self.linear3(out)
+        #uncomment to normalise
+        # out = self.mu_o + self.std_o * out
+        #out = torch.max(out,torch.tensor(10**(-5)))
+        
+        return out
+
+class Discriminator(nn.Module):
+    '''
+    VolGAN discriminator
+      in_dim: the input dimension (concatenated with the condition), a scalar
+      hidden_dim: the inner dimension, a scalar
+    '''
+    def __init__(self, in_dim, hidden_dim, mean = False, std = False):
+        super(Discriminator, self).__init__()
+        self.input_dim = in_dim
+        self.hidden_dim = hidden_dim
+        self.linear1 = nn.Linear(in_features=self.input_dim, out_features= self.hidden_dim)
+        self.linear2 = nn.Linear(in_features = self.hidden_dim, out_features = 1)
+        self.sigmoid = nn.Sigmoid()
+        self.Softplus = nn.Softplus()
+        self.mu_i = mean
+        self.std_i = std
+
+
+    def forward(self, in_chan):
+        '''
+        in_chan: concatenated condition with real or fake
+        h_0 and c_0: for the LSTM
+        '''
+        x = in_chan
+        #uncomment to normalise
+        # x = (x - self.mu_i) / self.std_i
+        out = self.linear1(x)
+        out = self.Softplus(out)
+        out = self.linear2(out)
+        out = self.sigmoid(out)
+
+        return out
