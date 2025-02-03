@@ -17,7 +17,9 @@ from scipy.interpolate import interp1d
 from numpy import arange, array, exp
 import Inputs
 
-# DATA PROCESSING
+##############################
+#####  DATA  PROCESSING  #####
+##############################
 
 def SwapsData(datapath, surfacespath):
     """
@@ -148,14 +150,14 @@ def DataPreprocesssing(datapath, surfacepath):
     sigma_out = np.concatenate((sigma_ret,sigma_liv_inc))
     
     #condition for generator and discriminator
-    condition = np.concatenate((np.expand_dims(return_tm1,axis=1),np.expand_dims(return_tm2,axis=1),np.expand_dims(realised_vol_tm1,axis=1),np.expand_dims(log_iv_tm1, axis=1)),axis=1)
-    # shape (434, 4, 144)
+    condition = np.concatenate((np.expand_dims(return_tm1,axis=2),np.expand_dims(return_tm2,axis=2),np.expand_dims(realised_vol_tm1,axis=2),np.expand_dims(log_iv_tm1, axis=2)),axis=2)
+    # shape (434, 144, 4)
     # each asset at each time has the condition vector
 
     #true: what we are trying to predict, increments at time t
     return_t_annualized = 252 * return_t
-    true = np.concatenate((np.expand_dims(return_t_annualized,axis=1),np.expand_dims(log_iv_inc_t, axis=1)),axis=1)
-    # shape (434, 2, 144)
+    true = np.concatenate((np.expand_dims(return_t_annualized,axis=2),np.expand_dims(log_iv_inc_t, axis=2)),axis=2)
+    # shape (434, 144, 2)
     # each asset at each time has the predicted annualized log return and log implied vol increment
 
     return true, condition, m_in,sigma_in, m_out, sigma_out, dates_t,  tenor, tau, tenors, taus
