@@ -194,7 +194,7 @@ def DataPreprocesssing(datapath, surfacepath, vol_model = 'normal'):
         true = np.concatenate((np.expand_dims(return_t_annualized,axis=2),np.expand_dims(log_iv_inc_t, axis=2)),axis=2)
     
     # shape (434, 144, 2)
-    # each asset at each time has the predicted annualized log return and log implied vol increment
+    # each asset at each time has the predicted annualized return and (normal or log) implied vol increment
 
     return true, condition, m_in, sigma_in, m_out, sigma_out, dates_t,  tenor, tau, tenors, taus
 
