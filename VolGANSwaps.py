@@ -24,13 +24,14 @@ def SwapsData(datapath, surfacespath):
     function to read the pre-processed Swaptions implied vol data
     """
 
-    # SETUP LOG RETURNS ON UNDERLYING 
-    log_rtn = np.log(pd.read_excel(datapath, skiprows = 2).set_index("Ticker").sort_index()).diff().dropna()
+    # SETUP RETURNS ON UNDERLYING 
+    # In rates world the returns are just the difference, not the log difference
+    returns = pd.read_excel(datapath, skiprows = 2).set_index("Ticker").sort_index().diff().dropna()
     
     # GET DATES
-    dates_dt = log_rtn.index
+    dates_dt = returns.index
     
-    # PROCESS VOLATILITY DATA
+    # PROCESS VOLATILITY SURFACE DATA
     volatilities = pd.read_excel(surfacespath, skiprows=2).set_index("Ticker")
     mat_n_ten = Inputs.maturity_tenor(surfacespath).T  
 
@@ -52,14 +53,15 @@ def SwapsData(datapath, surfacespath):
     
     taus, tenors = np.meshgrid(tau,tenor)
 
-    # NOTE: each COLUMN in log_rtn is the full time series of realised vol of a specific underlying asset with specific tenor and maturity
+    # NOTE: each COLUMN in returns is the full time series of return increments of a specific underlying asset with specific tenor and maturity
     # The set of assets with differing tenors and maturity for a specific date can be found in each ROW 
     # This means the COLUMN INDEX is a specific asset with some tenor and maturity 
     # The ROW INDEX is the date / time series of realised vol of that asset
+
     # This is shape (456, 144)
     # Same case for surfaces_transform, it is also shape (456, 144)
     
-    return surfaces_transform, log_rtn, tenor, tau, tenors, taus, dates_dt
+    return surfaces_transform, returns, tenor, tau, tenors, taus, dates_dt
 
     # Originally the penalty matrices in m and tau
     # dates = data['date'].unique()
@@ -82,17 +84,17 @@ def DataPreprocesssing(datapath, surfacepath):
     function for preparing the data for VolGAN
     later to be split into train, val, test
     """
-    surfaces_transform, log_rtn, tenor, tau, tenors, taus, dates_dt = SwapsData(datapath,surfacepath)
+    surfaces_transform, returns, tenor, tau, tenors, taus, dates_dt = SwapsData(datapath,surfacepath)
 
     # PRODUCE REALIZED VOLATILITIES
-    # Our log returns are across different tenors and maturities (as if we have more than one underlying asset compared to just SPX)
-    # The realized volatilities we produce will actually be a matrix 
+    # Our returns are across different tenors and maturities (as if we have more than one underlying asset compared to just SPX)
+    # This means that the realized volatilities we produce will actually be a matrix 
 
     #Realised volatility at time t-1
-    realised_vol_tm1 = np.zeros((log_rtn.shape[0]-22, log_rtn.shape[1]))
+    realised_vol_tm1 = np.zeros((returns.shape[0]-22, returns.shape[1]))
 
     for i in range(len(realised_vol_tm1)):
-            realised_vol_tm1[i] = np.sqrt(252 / 21) * np.sqrt(log_rtn.iloc[i:(i+21)] ** 2).sum()
+            realised_vol_tm1[i] = np.sqrt(252 / 21) * np.sqrt(returns.iloc[i:(i+21)] ** 2).sum()
     # COLUMN INDEX is a specific asset with some tenor and maturity 
     # ROW INDEX is the date / time series of realised vol of that asset
     # This has shape (434, 144)
@@ -100,11 +102,11 @@ def DataPreprocesssing(datapath, surfacepath):
     #shift the time
     dates_t = dates_dt[22:]
     
-    # SEPARATE OUR LOG RETURNS
-    #log-return at t, t-1, t-2
-    log_rtn_t = log_rtn.iloc[22:].values
-    log_rtn_tm1 = np.sqrt(252) * log_rtn.iloc[21:-1].values
-    log_rtn_tm2 = np.sqrt(252) * log_rtn.iloc[20:-2].values
+    # SEPARATE OUR RETURNS
+    #Return increment at t, t-1, t-2
+    return_t = returns.iloc[22:].values
+    return_tm1 = 252 * returns.iloc[21:-1].values
+    return_tm2 = 252 * returns.iloc[20:-2].values
     # COLUMN index is a specific asset with some tenor and maturity, row index is the date / time series of realised vol of that asset
 
     # GET LOG IMPLIED VOLS
@@ -117,10 +119,10 @@ def DataPreprocesssing(datapath, surfacepath):
     
     # SET UP NORMALIZATION PARAMETERS (I think this is used later in model training, it might be useful to keep)
     
-    #calculate normalisation parameters in case it is needed
-    #log-returns of the underlying
-    m_ret = np.mean(log_rtn_t[0:100], axis=0)
-    sigma_ret = np.std(log_rtn.iloc[0:100].values, axis=0)
+    # calculate normalisation parameters in case it is needed
+    # underlying returns
+    m_ret = np.mean(return_t[0:100], axis=0)
+    sigma_ret = np.std(return_t[0:100], axis=0)
     # shape (144,)
 
     #realised vol
@@ -146,13 +148,13 @@ def DataPreprocesssing(datapath, surfacepath):
     sigma_out = np.concatenate((sigma_ret,sigma_liv_inc))
     
     #condition for generator and discriminator
-    condition = np.concatenate((np.expand_dims(log_rtn_tm1,axis=1),np.expand_dims(log_rtn_tm2,axis=1),np.expand_dims(realised_vol_tm1,axis=1),np.expand_dims(log_iv_tm1, axis=1)),axis=1)
+    condition = np.concatenate((np.expand_dims(return_tm1,axis=1),np.expand_dims(return_tm2,axis=1),np.expand_dims(realised_vol_tm1,axis=1),np.expand_dims(log_iv_tm1, axis=1)),axis=1)
     # shape (434, 4, 144)
     # each asset at each time has the condition vector
 
     #true: what we are trying to predict, increments at time t
-    log_rtn_t_ann = np.sqrt(252) * log_rtn_t
-    true = np.concatenate((np.expand_dims(log_rtn_t_ann,axis=1),np.expand_dims(log_iv_inc_t, axis=1)),axis=1)
+    return_t_annualized = 252 * return_t
+    true = np.concatenate((np.expand_dims(return_t_annualized,axis=1),np.expand_dims(log_iv_inc_t, axis=1)),axis=1)
     # shape (434, 2, 144)
     # each asset at each time has the predicted annualized log return and log implied vol increment
 
