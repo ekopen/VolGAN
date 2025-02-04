@@ -93,7 +93,7 @@ def DataPreprocesssing(datapath, surfacepath, vol_model = 'normal'):
     # This means that the realized volatilities we produce will actually be a matrix 
 
     #Realised volatility at time t-1
-    realised_vol_tm1 = np.zeros((returns.shape[0]-22, returns.shape[1]))
+    realised_vol_tm1 = np.sqrt(252/21) * np.sqrt((returns.iloc[i:(i+21)]**2).sum())
 
     for i in range(len(realised_vol_tm1)):
             realised_vol_tm1[i] = np.sqrt(252 / 21) * np.sqrt(returns.iloc[i:(i+21)] ** 2).sum()
