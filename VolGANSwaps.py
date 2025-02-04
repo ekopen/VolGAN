@@ -323,3 +323,289 @@ class Discriminator(nn.Module):
         out = self.sigmoid(out)
 
         return out
+
+##############################
+##### RUNNING THE MODEL #####
+##############################
+
+def VolGAN(datapath,surfacepath, tr, noise_dim = 16, hidden_dim = 8, n_epochs = 1000,n_grad = 100, lrg = 0.0001, lrd = 0.0001, batch_size = 100, device = 'cpu'):
+   
+    true_train, true_test, condition_train, condition_test,  m_in,sigma_in, m_out, sigma_out, dates_t,  m, tau, ms, taus = DataTrainTest(datapath,surfacepath, tr, device)
+    gen = Generator(noise_dim=noise_dim,cond_dim=condition_train.shape[1], hidden_dim=hidden_dim,output_dim=true_train.shape[1],mean_in = m_in, std_in = sigma_in, mean_out = m_out, std_out = sigma_out)
+    gen.to(device)
+    m_disc = torch.cat((m_in,m_out),dim=-1)
+    sigma_disc = torch.cat((sigma_in,sigma_out),dim=-1)
+    disc = Discriminator(in_dim = condition_train.shape[1] + true_train.shape[1], hidden_dim = hidden_dim, mean = m_disc, std = sigma_disc)
+    disc.to(device)
+    true_val = False
+    condition_val = False
+    gen_opt = torch.optim.RMSprop(gen.parameters(), lr=lrg)
+    disc_opt = torch.optim.RMSprop(disc.parameters(), lr=lrd)
+    criterion = nn.BCELoss()
+    criterion = criterion.to(device)
+    gen,gen_opt,disc,disc_opt,criterion, alpha, beta = GradientMatching(gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,m,tau,ms,taus,n_grad,lrg,lrd,batch_size,noise_dim,device)
+    gen,gen_opt,disc,disc_opt,criterion = TrainLoopNoVal(alpha,beta,gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,m,tau,ms,taus,n_epochs,lrg,lrd,batch_size,noise_dim,device)
+    return gen, gen_opt, disc, disc_opt, true_train, true_val, true_test, condition_train, condition_val, condition_test, dates_t,  m, tau, ms, taus
+
+def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,m,tau,ms,taus,n_grad,lrg,lrd,batch_size,noise_dim,device, lk = 10, lt = 8):
+    """
+    perform gradient matching
+    """
+    n_train = condition_train.shape[0]
+    n_batches =  n_train // batch_size + 1
+    dtm = tau * 365
+    mP_t,mP_k,mPb_K = penalty_mutau_tensor(m,dtm,device)
+    moneyness_t = torch.tensor(m,dtype=torch.float,device=device)
+    
+    #smoothness penalties
+    Ngrid = lk * lt
+    tau_t = torch.tensor(tau,dtype=torch.float,device=device)
+    t_seq = torch.zeros((tau_t.shape[0]),dtype=torch.float,device=device)
+    for i in range(tau_t.shape[0]-1):
+        t_seq[i] = 1/((tau_t[i+1]-tau_t[i])**2)
+    matrix_t = torch.zeros((Ngrid,Ngrid), device = device, dtype = torch.float)
+    for i in range(Ngrid-1):
+        matrix_t[i,i] = -1
+        matrix_t[i,i+1] = 1
+    tsq = t_seq.repeat(lk).unsqueeze(0)
+    matrix_m = torch.zeros((Ngrid-lk,Ngrid), device = device, dtype = torch.float)
+    for i in range(Ngrid-lk):
+        matrix_m[i,i] = -1
+        matrix_m[i,i+lk] = 1
+        
+    m_seq = torch.zeros((lk*(lt-1)),dtype=torch.float,device=device)
+    for i in range(moneyness_t.shape[0]-1):
+        m_seq[i*lk:(i+1)*lk] = 1/((moneyness_t[i+1]-moneyness_t[i])**2)
+    
+    n_epochs = n_grad
+    discloss = [False] * (n_batches*n_epochs)
+    genloss = [False] * (n_batches*n_epochs)
+    dscpred_real = [False] * (n_batches*n_epochs)
+    dscpred_fake = [False] * (n_batches*n_epochs)
+    gen_fake = [False] * (n_batches*n_epochs)
+    genprices_fk = [False] * (n_batches*n_epochs)
+    BCE_grad = []
+    m_smooth_grad = []
+    t_smooth_grad = []
+    gen.train()
+    for epoch in tqdm(range(n_epochs)):
+        perm = torch.randperm(n_train)
+        condition_train = condition_train[perm,:]
+        true_train = true_train[perm,:]
+        for i in range(n_batches):
+            curr_batch_size = batch_size
+            if i==(n_batches-1):
+                curr_batch_size = n_train-i*batch_size
+            condition = condition_train[(i*batch_size):(i*batch_size+curr_batch_size),:]
+            surface_past = condition_train[(i*batch_size):(i*batch_size+curr_batch_size),3:]
+            real = true_train[(i*batch_size):(i*batch_size+curr_batch_size),:]
+
+            real_and_cond = torch.cat((condition,real),dim=-1)
+            #update the discriminator
+            disc_opt.zero_grad()
+            noise = torch.randn((curr_batch_size,noise_dim), device=device,dtype=torch.float)
+            fake = gen(noise,condition)
+            fake_and_cond = torch.cat((condition,fake),dim=-1)
+
+            disc_fake_pred = disc(fake_and_cond.detach())
+            disc_real_pred = disc(real_and_cond)
+            disc_fake_loss = criterion(disc_fake_pred, torch.zeros_like(disc_fake_pred))
+            disc_real_loss = criterion(disc_real_pred, torch.ones_like(disc_real_pred))
+            disc_loss = (disc_fake_loss + disc_real_loss) / 2
+            disc_loss.backward()
+            disc_opt.step()
+            
+            dscpred_real[epoch*n_batches+i] = disc_real_pred[0].detach().item()
+            dscpred_fake[epoch*n_batches+i] = disc_fake_pred[0].detach().item()
+            
+            discloss[epoch*n_batches+i] = disc_loss.detach().item()
+            
+            #update the generator
+            gen_opt.zero_grad()
+            noise = torch.randn((curr_batch_size,noise_dim), device=device,dtype=torch.float)
+            fake = gen(noise,condition)
+
+            fake_and_cond = torch.cat((condition,fake),dim=-1)
+            
+            disc_fake_pred = disc(fake_and_cond)
+            
+            fake_surface = torch.exp(fake[:,1:]+ surface_past)
+
+            penalties_m = [None] * curr_batch_size
+            penalties_t = [None] * curr_batch_size
+            for iii in range(curr_batch_size):
+                penalties_m[iii] = torch.matmul(m_seq,(torch.matmul(matrix_m,fake_surface[iii])**2))
+                penalties_t[iii] = torch.matmul(tsq,(torch.matmul(matrix_t,fake_surface[iii])**2))
+            m_penalty = sum(penalties_m) / curr_batch_size
+            t_penalty = sum(penalties_t) / curr_batch_size
+            
+            m_penalty.backward(retain_graph=True)
+            total_norm = 0
+            for p in gen.parameters():
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+            total_norm = total_norm ** (1. / 2)
+            #list of gradient norms
+            m_smooth_grad.append(total_norm)
+            gen_opt.zero_grad()
+            
+            t_penalty.backward(retain_graph=True)
+            total_norm = 0
+            for p in gen.parameters():
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+            total_norm = total_norm ** (1. / 2)
+            #list of gradient norms
+            t_smooth_grad.append(total_norm)
+            
+            gen_opt.zero_grad()
+            gen_loss = criterion(disc_fake_pred, torch.ones_like(disc_fake_pred))
+            gen_loss.backward()
+            total_norm = 0
+            for p in gen.parameters():
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+            total_norm = total_norm ** (1. / 2)
+            #list of gradient norms
+            BCE_grad.append(total_norm)
+            gen_opt.step()
+            genloss[epoch*n_batches+i] = gen_loss.detach().item()
+            gen_fake[epoch*n_batches+i] = fake[0].detach()
+            genprices_fk[epoch*n_batches+i]= condition[0].detach()
+        
+            
+
+    alpha = np.mean(np.array(BCE_grad) / np.array(m_smooth_grad))
+    beta = np.mean(np.array(BCE_grad) / np.array(t_smooth_grad))
+    print("alpha :", alpha, "beta :", beta)
+    return gen,gen_opt,disc,disc_opt,criterion, alpha, beta
+
+def TrainLoopNoVal(alpha,beta,gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,m,tau,ms,taus,n_epochs,lrg,lrd,batch_size,noise_dim,device, lk = 10, lt = 8):
+    """
+    train loop for VolGAN
+    """
+    n_train = condition_train.shape[0]
+    n_batches =  n_train // batch_size + 1
+    dtm = tau * 365
+    mP_t,mP_k,mPb_K = penalty_mutau_tensor(m,dtm,device)
+    moneyness_t = torch.tensor(m,dtype=torch.float,device=device)
+    #smoothness penalties
+    Ngrid = lk * lt
+    tau_t = torch.tensor(tau,dtype=torch.float,device=device)
+    t_seq = torch.zeros((tau_t.shape[0]),dtype=torch.float,device=device)
+    for i in range(tau_t.shape[0]-1):
+        t_seq[i] = 1/((tau_t[i+1]-tau_t[i])**2)
+    matrix_t = torch.zeros((Ngrid,Ngrid), device = device, dtype = torch.float)
+    for i in range(Ngrid-1):
+        matrix_t[i,i] = -1
+        matrix_t[i,i+1] = 1
+    tsq = t_seq.repeat(lk).unsqueeze(0)
+    matrix_m = torch.zeros((Ngrid-lk,Ngrid), device = device, dtype = torch.float)
+    for i in range(Ngrid-lk):
+        matrix_m[i,i] = -1
+        matrix_m[i,i+lk] = 1
+        
+    m_seq = torch.zeros((lk*(lt-1)),dtype=torch.float,device=device)
+    for i in range(moneyness_t.shape[0]-1):
+        m_seq[i*lk:(i+1)*lk] = 1/((moneyness_t[i+1]-moneyness_t[i])**2)
+    
+    discloss = [False] * (n_batches*n_epochs)
+    genloss = [False] * (n_batches*n_epochs)
+    dscpred_real = [False] * (n_batches*n_epochs)
+    dscpred_fake = [False] * (n_batches*n_epochs)
+    gen_fake = [False] * (n_batches*n_epochs)
+    genprices_fk = [False] * (n_batches*n_epochs)
+
+    gen.train()
+    for epoch in tqdm(range(n_epochs)):
+        perm = torch.randperm(n_train)
+        condition_train = condition_train[perm,:]
+        true_train = true_train[perm,:]
+        for i in range(n_batches):
+            curr_batch_size = batch_size
+            if i==(n_batches-1):
+                curr_batch_size = n_train-i*batch_size
+            condition = condition_train[(i*batch_size):(i*batch_size+curr_batch_size),:]
+            surface_past = condition_train[(i*batch_size):(i*batch_size+curr_batch_size),3:]
+            real = true_train[(i*batch_size):(i*batch_size+curr_batch_size),:]
+
+            real_and_cond = torch.cat((condition,real),dim=-1)
+            #update the discriminator
+            disc_opt.zero_grad()
+            noise = torch.randn((curr_batch_size,noise_dim), device=device,dtype=torch.float)
+            fake = gen(noise,condition)
+            fake_and_cond = torch.cat((condition,fake),dim=-1)
+
+            disc_fake_pred = disc(fake_and_cond.detach())
+            disc_real_pred = disc(real_and_cond)
+            disc_fake_loss = criterion(disc_fake_pred, torch.zeros_like(disc_fake_pred))
+            disc_real_loss = criterion(disc_real_pred, torch.ones_like(disc_real_pred))
+            disc_loss = (disc_fake_loss + disc_real_loss) / 2
+            disc_loss.backward()
+            disc_opt.step()
+            
+            dscpred_real[epoch*n_batches+i] = disc_real_pred[0].detach().item()
+            dscpred_fake[epoch*n_batches+i] = disc_fake_pred[0].detach().item()
+            
+            discloss[epoch*n_batches+i] = disc_loss.detach().item()
+            
+            #update the generator
+            gen_opt.zero_grad()
+            noise = torch.randn((curr_batch_size,noise_dim), device=device,dtype=torch.float)
+            fake = gen(noise,condition)
+
+            fake_and_cond = torch.cat((condition,fake),dim=-1)
+            
+            disc_fake_pred = disc(fake_and_cond)
+            
+            # fake_surface = torch.exp(fake[:,1:]+ surface_past)
+            fake_surface = fake[:,1:]+ surface_past
+
+            penalties_m = [None] * curr_batch_size
+            penalties_t = [None] * curr_batch_size
+            for iii in range(curr_batch_size):
+                penalties_m[iii] = torch.matmul(m_seq,(torch.matmul(matrix_m,fake_surface[iii])**2))
+                penalties_t[iii] = torch.matmul(tsq,(torch.matmul(matrix_t,fake_surface[iii])**2))
+            m_penalty = sum(penalties_m) / curr_batch_size
+            t_penalty = sum(penalties_t) / curr_batch_size
+            
+            gen_opt.zero_grad()
+            gen_loss = criterion(disc_fake_pred, torch.ones_like(disc_fake_pred)) + alpha * m_penalty + beta * t_penalty
+            gen_loss.backward()
+            gen_opt.step()
+            genloss[epoch*n_batches+i] = gen_loss.detach().item()
+            gen_fake[epoch*n_batches+i] = fake[0].detach()
+            genprices_fk[epoch*n_batches+i]= condition[0].detach()
+            
+        
+    return gen,gen_opt,disc,disc_opt,criterion
+
+##############################
+##### PENALTY FUNCTIONS #####
+##############################
+
+def penalty_mutau_tensor(mu,T,device):
+    return penalty_tensor(mu,T,device)
+
+def penalty_tensor(K,T,device):
+    """
+    matrices for calculating the arbitrage penalty (tensors)
+    """
+    P_T = torch.zeros(size=(len(T),len(T)),dtype=torch.float,device = device)
+    P_K = torch.zeros(size=(len(K),len(K)),dtype=torch.float,device = device)
+    PB_K = torch.zeros(size=(len(K),len(K)),dtype=torch.float,device = device)
+    #P_T first, the last one is zero
+    for j in tqdm(np.arange(0,len(T)-1,1)):
+        P_T[j,j] = T[j]/(T[j+1]-T[j])
+        P_T[j+1,j] = -T[j]/(T[j+1]-T[j])
+    #now P_K and then PB_K
+    for i in tqdm(np.arange(0,len(K)-1,1)):
+        P_K[i,i] = -1/(K[i+1]-K[i])
+        P_K[i,i+1] = 1/(K[i+1]-K[i])
+    #PB_K: note that it is a scaled finite difference, but let's compute it on its own just in case
+    #once we fix the grid we have to run this function only once so it doesn't matter much
+    for i in tqdm(np.arange(1,len(K)-1,1)):
+        PB_K[i,i-1] =  -(K[i+1]-K[i]) / ((K[i]-K[i-1]) * (K[i+1]-K[i]))
+        PB_K[i,i] = (K[i+1] - K[i-1]) / ((K[i]-K[i-1]) * (K[i+1]-K[i]))
+        PB_K[i,i+1] = -(K[i]-K[i-1]) / ((K[i]-K[i-1]) * (K[i+1]-K[i]))
+    return P_T,P_K,PB_K
