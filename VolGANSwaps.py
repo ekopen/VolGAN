@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+
 import numpy.random as rnd
 import numpy as np
 import pandas as pd
@@ -81,7 +82,7 @@ def SwapsData(datapath, surfacespath):
 
     return surfaces_transform, log_return, tenor, tau, tenors, taus, dates_dt
 
-def DataPreprocesssing(datapath, surfacepath, vol_model = 'normal'):
+def DataPreprocesssing(datapath, surfacepath, vol_model='normal'):
     """
     function for preparing the data for VolGAN
     later to be split into train, val, test
@@ -272,7 +273,7 @@ class Generator(nn.Module):
         self.activation3 = nn.Sigmoid()
        
 
-    def forward(self, noise,condition):
+    def forward(self, noise, condition):
         '''
         Function for completing a forward pass of the generator:adding the noise and the condition separately
         '''
@@ -281,6 +282,7 @@ class Generator(nn.Module):
         #out: increment in r_t, increment in implied vol _t
         
         # condition = (condition - self.mu_i) / self.std_i
+
         out = torch.cat([noise,condition],dim=-1).to(torch.float)
         out = self.linear1(out)
         out = self.activation1(out)
@@ -289,7 +291,7 @@ class Generator(nn.Module):
         out = self.linear3(out)
         #uncomment to normalise
         # out = self.mu_o + self.std_o * out
-        #out = torch.max(out,torch.tensor(10**(-5)))
+        # out = torch.max(out,torch.tensor(10**(-5)))
         
         return out
 
@@ -330,34 +332,55 @@ class Discriminator(nn.Module):
 ##### RUNNING THE MODEL #####
 ##############################
 
-def VolGAN(datapath,surfacepath, tr, noise_dim = 16, hidden_dim = 8, n_epochs = 1000,n_grad = 100, lrg = 0.0001, lrd = 0.0001, batch_size = 100, device = 'cpu'):
+def VolGAN(datapath, surfacepath, tr, vol_model = 'normal',
+           noise_dim = 16, hidden_dim = 8, 
+           n_epochs = 1000,n_grad = 100, 
+           lrg = 0.0001, lrd = 0.0001, 
+           batch_size = 100, device = 'cpu'):
    
-    true_train, true_test, condition_train, condition_test,  m_in,sigma_in, m_out, sigma_out, dates_t,  m, tau, ms, taus = DataTrainTest(datapath,surfacepath, tr, device)
+    true_train, true_test, condition_train, condition_test,  m_in,sigma_in, m_out, sigma_out, dates_t,  tenor, tau, tenors, taus = DataTrainTest(datapath,surfacepath, tr, vol_model, device)
     gen = Generator(noise_dim=noise_dim,cond_dim=condition_train.shape[2], hidden_dim=hidden_dim,output_dim=true_train.shape[2],mean_in = m_in, std_in = sigma_in, mean_out = m_out, std_out = sigma_out)
     gen.to(device)
+    
+    # m_disc and sigma_disc are not used in the original VolGAN, you can see in the Discriminator forward function 
+    # we'll preserve the forward pass for now but we can maybe incorporate these later if needed    
     m_disc = torch.cat((m_in,m_out),dim=-1)
     sigma_disc = torch.cat((sigma_in,sigma_out),dim=-1)
+
     disc = Discriminator(in_dim = condition_train.shape[2] + true_train.shape[2], hidden_dim = hidden_dim, mean = m_disc, std = sigma_disc)
     disc.to(device)
+    
     true_val = False
     condition_val = False
+    
     gen_opt = torch.optim.RMSprop(gen.parameters(), lr=lrg)
     disc_opt = torch.optim.RMSprop(disc.parameters(), lr=lrd)
+    
     criterion = nn.BCELoss()
     criterion = criterion.to(device)
-    gen,gen_opt,disc,disc_opt,criterion, alpha, beta = GradientMatching(gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,m,tau,ms,taus,n_grad,lrg,lrd,batch_size,noise_dim,device)
-    gen,gen_opt,disc,disc_opt,criterion = TrainLoopNoVal(alpha,beta,gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,m,tau,ms,taus,n_epochs,lrg,lrd,batch_size,noise_dim,device)
-    return gen, gen_opt, disc, disc_opt, true_train, true_val, true_test, condition_train, condition_val, condition_test, dates_t,  m, tau, ms, taus
+    
+    gen,gen_opt,disc,disc_opt,criterion, alpha, beta = GradientMatching(gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,tenor,tau,tenors,taus,n_grad,lrg,lrd,batch_size,noise_dim,device)
+    gen,gen_opt,disc,disc_opt,criterion = TrainLoopNoVal(alpha,beta,gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,tenor,tau,tenors,taus,n_epochs,lrg,lrd,batch_size,noise_dim,device)
+    
+    return gen, gen_opt, disc, disc_opt, true_train, true_val, true_test, condition_train, condition_val, condition_test, dates_t,  tenor, tau, tenors, taus
 
-def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,m,tau,ms,taus,n_grad,lrg,lrd,batch_size,noise_dim,device, lk = 10, lt = 8):
+def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
+                     condition_train,true_train,
+                     tenor,tau,tenors,taus,
+                     n_grad,lrg,lrd,batch_size,noise_dim,
+                     device, lk = 10, lt = 8):
     """
     perform gradient matching
     """
+
     n_train = condition_train.shape[0]
+    underlying_dim = condition_train.shape[1]
     n_batches =  n_train // batch_size + 1
     dtm = tau * 365
-    mP_t,mP_k,mPb_K = penalty_mutau_tensor(m,dtm,device)
-    moneyness_t = torch.tensor(m,dtype=torch.float,device=device)
+
+    #mP_t,mP_k,mPb_K = penalty_mutau_tensor(m,dtm,device)
+    
+    tenor_t = torch.tensor(tenor,dtype=torch.float,device=device)
     
     #smoothness penalties
     Ngrid = lk * lt
@@ -370,14 +393,14 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,condition_train,true_tr
         matrix_t[i,i] = -1
         matrix_t[i,i+1] = 1
     tsq = t_seq.repeat(lk).unsqueeze(0)
-    matrix_m = torch.zeros((Ngrid-lk,Ngrid), device = device, dtype = torch.float)
+    matrix_tenor = torch.zeros((Ngrid-lk,Ngrid), device = device, dtype = torch.float)
     for i in range(Ngrid-lk):
-        matrix_m[i,i] = -1
-        matrix_m[i,i+lk] = 1
+        matrix_tenor[i,i] = -1
+        matrix_tenor[i,i+lk] = 1
         
     m_seq = torch.zeros((lk*(lt-1)),dtype=torch.float,device=device)
-    for i in range(moneyness_t.shape[0]-1):
-        m_seq[i*lk:(i+1)*lk] = 1/((moneyness_t[i+1]-moneyness_t[i])**2)
+    for i in range(tenor_t.shape[0]-1):
+        m_seq[i*lk:(i+1)*lk] = 1/((tenor_t[i+1]-tenor_t[i])**2)
     
     n_epochs = n_grad
     discloss = [False] * (n_batches*n_epochs)
@@ -390,22 +413,34 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,condition_train,true_tr
     m_smooth_grad = []
     t_smooth_grad = []
     gen.train()
+
     for epoch in tqdm(range(n_epochs)):
+
         perm = torch.randperm(n_train)
         condition_train = condition_train[perm,:]
         true_train = true_train[perm,:]
+
         for i in range(n_batches):
+            
+            print("Epoch: ", epoch, "Batch: ", i)
+
             curr_batch_size = batch_size
+            
             if i==(n_batches-1):
                 curr_batch_size = n_train-i*batch_size
-            condition = condition_train[(i*batch_size):(i*batch_size+curr_batch_size),:]
-            surface_past = condition_train[(i*batch_size):(i*batch_size+curr_batch_size),3:]
-            real = true_train[(i*batch_size):(i*batch_size+curr_batch_size),:]
+            
+            condition = condition_train[(i*batch_size):(i*batch_size+curr_batch_size),:, :]
+            
+            surface_past = condition_train[(i*batch_size):(i*batch_size+curr_batch_size),:,3:]
+
+            real = true_train[(i*batch_size):(i*batch_size+curr_batch_size),:,:]
 
             real_and_cond = torch.cat((condition,real),dim=-1)
             #update the discriminator
             disc_opt.zero_grad()
-            noise = torch.randn((curr_batch_size,noise_dim), device=device,dtype=torch.float)
+
+            noise = torch.randn((curr_batch_size, underlying_dim, noise_dim), device=device,dtype=torch.float)
+
             fake = gen(noise,condition)
             fake_and_cond = torch.cat((condition,fake),dim=-1)
 
@@ -424,7 +459,7 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,condition_train,true_tr
             
             #update the generator
             gen_opt.zero_grad()
-            noise = torch.randn((curr_batch_size,noise_dim), device=device,dtype=torch.float)
+            noise = torch.randn((curr_batch_size, underlying_dim, noise_dim), device=device,dtype=torch.float)
             fake = gen(noise,condition)
 
             fake_and_cond = torch.cat((condition,fake),dim=-1)
@@ -436,7 +471,7 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,condition_train,true_tr
             penalties_m = [None] * curr_batch_size
             penalties_t = [None] * curr_batch_size
             for iii in range(curr_batch_size):
-                penalties_m[iii] = torch.matmul(m_seq,(torch.matmul(matrix_m,fake_surface[iii])**2))
+                penalties_m[iii] = torch.matmul(m_seq,(torch.matmul(matrix_tenor,fake_surface[iii])**2))
                 penalties_t[iii] = torch.matmul(tsq,(torch.matmul(matrix_t,fake_surface[iii])**2))
             m_penalty = sum(penalties_m) / curr_batch_size
             t_penalty = sum(penalties_t) / curr_batch_size
@@ -476,21 +511,21 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,condition_train,true_tr
             genprices_fk[epoch*n_batches+i]= condition[0].detach()
         
             
-
     alpha = np.mean(np.array(BCE_grad) / np.array(m_smooth_grad))
     beta = np.mean(np.array(BCE_grad) / np.array(t_smooth_grad))
     print("alpha :", alpha, "beta :", beta)
     return gen,gen_opt,disc,disc_opt,criterion, alpha, beta
 
-def TrainLoopNoVal(alpha,beta,gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,m,tau,ms,taus,n_epochs,lrg,lrd,batch_size,noise_dim,device, lk = 10, lt = 8):
+def TrainLoopNoVal(alpha,beta,gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,tenor,tau,tenors,taus,n_epochs,lrg,lrd,batch_size,noise_dim,device, lk = 10, lt = 8):
     """
     train loop for VolGAN
     """
     n_train = condition_train.shape[0]
     n_batches =  n_train // batch_size + 1
     dtm = tau * 365
-    mP_t,mP_k,mPb_K = penalty_mutau_tensor(m,dtm,device)
-    moneyness_t = torch.tensor(m,dtype=torch.float,device=device)
+    #mP_t,mP_k,mPb_K = penalty_mutau_tensor(m,dtm,device)
+    
+    tenor_t = torch.tensor(tenor,dtype=torch.float,device=device)
     #smoothness penalties
     Ngrid = lk * lt
     tau_t = torch.tensor(tau,dtype=torch.float,device=device)
@@ -502,14 +537,14 @@ def TrainLoopNoVal(alpha,beta,gen,gen_opt,disc,disc_opt,criterion,condition_trai
         matrix_t[i,i] = -1
         matrix_t[i,i+1] = 1
     tsq = t_seq.repeat(lk).unsqueeze(0)
-    matrix_m = torch.zeros((Ngrid-lk,Ngrid), device = device, dtype = torch.float)
+    matrix_tenor = torch.zeros((Ngrid-lk,Ngrid), device = device, dtype = torch.float)
     for i in range(Ngrid-lk):
-        matrix_m[i,i] = -1
-        matrix_m[i,i+lk] = 1
+        matrix_tenor[i,i] = -1
+        matrix_tenor[i,i+lk] = 1
         
     m_seq = torch.zeros((lk*(lt-1)),dtype=torch.float,device=device)
-    for i in range(moneyness_t.shape[0]-1):
-        m_seq[i*lk:(i+1)*lk] = 1/((moneyness_t[i+1]-moneyness_t[i])**2)
+    for i in range(tenor_t.shape[0]-1):
+        m_seq[i*lk:(i+1)*lk] = 1/((tenor_t[i+1]-tenor_t[i])**2)
     
     discloss = [False] * (n_batches*n_epochs)
     genloss = [False] * (n_batches*n_epochs)
@@ -566,7 +601,7 @@ def TrainLoopNoVal(alpha,beta,gen,gen_opt,disc,disc_opt,criterion,condition_trai
             penalties_m = [None] * curr_batch_size
             penalties_t = [None] * curr_batch_size
             for iii in range(curr_batch_size):
-                penalties_m[iii] = torch.matmul(m_seq,(torch.matmul(matrix_m,fake_surface[iii])**2))
+                penalties_m[iii] = torch.matmul(m_seq,(torch.matmul(matrix_tenor,fake_surface[iii])**2))
                 penalties_t[iii] = torch.matmul(tsq,(torch.matmul(matrix_t,fake_surface[iii])**2))
             m_penalty = sum(penalties_m) / curr_batch_size
             t_penalty = sum(penalties_t) / curr_batch_size
