@@ -50,7 +50,9 @@ def SwapsData(datapath, surfacespath):
 
     # SETUP THE TENOR AND TAU MATRICES
     # t \in {\frac{1}{12}, \frac{1}{4}, \frac{1}{2}, \frac{3}{4}, 1, 1.5, 2, 3, 4, 5, 7, 10, 15, 20, 25, 30}
-    tenor = np.array([1/12, 1/4, 1/2, 3/4, 1, 1.5, 2, 3, 4, 5, 7, 10, 15, 20, 25, 30])
+    # we removed 30 year because of missing data
+
+    tenor = np.array([1/12, 1/4, 1/2, 3/4, 1, 1.5, 2, 3, 4, 5, 7, 10, 15, 20, 25])
     # \tau \in {1, 2, 3, 4, 5, 6, 7, 8, 9}
     tau = np.linspace(1, 9, 9) 
     
@@ -368,7 +370,7 @@ def VolGAN(datapath, surfacepath, tr, vol_model = 'normal',
     criterion = criterion.to(device)
     
     gen,gen_opt,disc,disc_opt,criterion, alpha, beta = GradientMatching(gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,tenor,tau,tenors,taus,n_grad,lrg,lrd,batch_size,noise_dim,device, vol_model=vol_model)
-    gen,gen_opt,disc,disc_opt,criterion = TrainLoopNoVal(alpha,beta,gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,tenor,tau,tenors,taus,n_epochs,lrg,lrd,batch_size,noise_dim,device)
+    gen,gen_opt,disc,disc_opt,criterion = TrainLoopNoVal(alpha,beta,gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,tenor,tau,tenors,taus,n_epochs,lrg,lrd,batch_size,noise_dim,device, vol_model=vol_model)
     
     return gen, gen_opt, disc, disc_opt, true_train, true_val, true_test, condition_train, condition_val, condition_test, dates_t,  tenor, tau, tenors, taus
 
@@ -376,7 +378,7 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
                      condition_train,true_train,
                      tenor,tau,tenors,taus,
                      n_grad,lrg,lrd,batch_size,noise_dim,
-                     device, lk = 16, lt = 9, vol_model = 'normal'):
+                     device, lk = 15, lt = 9, vol_model = 'normal'):
     """
     perform gradient matching
     """
@@ -430,7 +432,7 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
 
         for i in range(n_batches):
             
-            print("Epoch: ", epoch, "Batch: ", i)
+            #print("Epoch: ", epoch, "Batch: ", i)
 
             curr_batch_size = batch_size
             
@@ -488,9 +490,6 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
             elif vol_model == 'log':
                 fake_surface = torch.exp(fake[:,:,1:]+ surface_past)
 
-            # TRAINING LOOP IS WORKING UP UNTIL HERE
-            # BEFORE THERE WERE NAN PROBLEMS SO THAT THE LOSS COULD NOT BE CALCULATED
-
             penalties_tenor = [None] * curr_batch_size
             penalties_t = [None] * curr_batch_size
             for iii in range(curr_batch_size):
@@ -538,8 +537,15 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
     beta = np.mean(np.array(BCE_grad) / np.array(t_smooth_grad))
     print("alpha :", alpha, "beta :", beta)
     return gen,gen_opt,disc,disc_opt,criterion, alpha, beta
+    # GRADIENT MATCHING TRAINING LOOP IS WORKING 
 
-def TrainLoopNoVal(alpha,beta,gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,tenor,tau,tenors,taus,n_epochs,lrg,lrd,batch_size,noise_dim,device, lk = 10, lt = 8):
+def TrainLoopNoVal(alpha,beta,
+                   gen,gen_opt,disc,disc_opt,
+                   criterion,condition_train,true_train,
+                   tenor,tau,tenors,taus,
+                   n_epochs,lrg,lrd,
+                   batch_size,noise_dim,device, 
+                   lk = 15, lt = 9, vol_model = 'normal'):
     """
     train loop for VolGAN
     """
