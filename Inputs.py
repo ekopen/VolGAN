@@ -112,7 +112,7 @@ def scatter_swaption_surface(date, filename = "swaption_atm_vol_full.xlsx"):
     ax.set_ylabel('Maturity')
     ax.set_zlabel('Implied Volatility')
 
-    ax.set_title(f'Swaption Volatility Surface on {date}')
+    ax.set_title(f'Scatter Swaption Volatility Surface on {date}')
     
     plt.show()
 
@@ -167,6 +167,8 @@ Also note that we may have to make the switch to the 10y year rate if we have pr
 """
 
 #In the paper, they use nperiods = 20 and ann = 252
+
+
 def realized_volatility_data(date, nperiods, ann, filename = "forward_sofr_swap_full.xlsx"):
     volatilites = pd.read_excel(filename, skiprows = 2).set_index("Ticker").sort_index().diff().rolling(nperiods).std()
     mat_n_ten = maturity_tenor(filename).T
@@ -177,8 +179,9 @@ def realized_volatility_data(date, nperiods, ann, filename = "forward_sofr_swap_
     
     return df
 
+
 def tabular_rvol_form(date, nperiods, ann, filename = "forward_sofr_swap_full.xlsx"):
-    df = realized_volatility_data(date, nperiods, ann)
+    # df = realized_volatility_data(date, nperiods, ann) # edit
+    df = realized_volatility_data(date, nperiods, ann, filename)
     grid = df.pivot(index='Tenor', columns="Maturity", values='Values')
     return grid
-
