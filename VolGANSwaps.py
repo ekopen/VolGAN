@@ -39,7 +39,7 @@ def SwapsData(datapath, surfacespath):
     mat_n_ten = Inputs.maturity_tenor(surfacespath).T  
 
     # Initialize matrix
-    surfaces_transform = np.empty((len(dates_dt), 144))  # Preallocate memory
+    surfaces_transform = np.empty((returns.shape[0], returns.shape[1]))  # Preallocate memory
 
     # Process dates
     for i, date in enumerate(dates_dt):
@@ -148,7 +148,7 @@ def DataPreprocesssing(datapath, surfacepath, vol_model='normal'):
 
     if vol_model == 'normal':
 
-        # normal implie vol
+        # normal implied vol
         m_iv = np.mean(iv_t[0:100], axis=0)
         sigma_iv = np.std(iv_t[0:100], axis=0)
 
@@ -162,7 +162,7 @@ def DataPreprocesssing(datapath, surfacepath, vol_model='normal'):
         m_out = np.concatenate((m_ret,m_iv_inc))
         sigma_out = np.concatenate((sigma_ret,sigma_iv_inc))
 
-        condition = np.concatenate((np.expand_dims(return_tm1,axis=2),np.expand_dims(return_tm2,axis=2),np.expand_dims(realised_vol_tm1,axis=2),np.expand_dims(iv_tm1, axis=2)),axis=2)
+        condition = np.concatenate((np.expand_dims(return_tm1,axis=2),np.expand_dims(return_tm2,axis=2),np.expand_dims(realised_vol_tm1,axis=2),np.expand_dims(iv_t, axis=2)),axis=2)
         # shape (434, 144, 4)
         # each asset at each time has the condition vector
 
@@ -184,7 +184,7 @@ def DataPreprocesssing(datapath, surfacepath, vol_model='normal'):
         m_out = np.concatenate((m_ret,m_liv_inc))
         sigma_out = np.concatenate((sigma_ret,sigma_liv_inc))
         
-        condition = np.concatenate((np.expand_dims(return_tm1,axis=2),np.expand_dims(return_tm2,axis=2),np.expand_dims(realised_vol_tm1,axis=2),np.expand_dims(log_iv_tm1, axis=2)),axis=2)    
+        condition = np.concatenate((np.expand_dims(return_tm1,axis=2),np.expand_dims(return_tm2,axis=2),np.expand_dims(realised_vol_tm1,axis=2),np.expand_dims(log_iv_t, axis=2)),axis=2)    
         # shape (434, 144, 4)
         # each asset at each time has the condition vector
 
@@ -284,11 +284,18 @@ class Generator(nn.Module):
         # condition = (condition - self.mu_i) / self.std_i
 
         out = torch.cat([noise,condition],dim=-1).to(torch.float)
+        # out = self.linear1(out)
+        # out = self.activation1(out)
+        # out = self.linear2(out)
+        # out = self.activation2(out)
+        # out = self.linear3(out)
+
         out = self.linear1(out)
         out = self.activation1(out)
         out = self.linear2(out)
         out = self.activation2(out)
         out = self.linear3(out)
+
         #uncomment to normalise
         # out = self.mu_o + self.std_o * out
         # out = torch.max(out,torch.tensor(10**(-5)))
@@ -306,9 +313,10 @@ class Discriminator(nn.Module):
         self.input_dim = in_dim
         self.hidden_dim = hidden_dim
         self.linear1 = nn.Linear(in_features=self.input_dim, out_features= self.hidden_dim)
+        self.Softplus = nn.Softplus()
         self.linear2 = nn.Linear(in_features = self.hidden_dim, out_features = 1)
         self.sigmoid = nn.Sigmoid()
-        self.Softplus = nn.Softplus()
+
         self.mu_i = mean
         self.std_i = std
 
@@ -441,17 +449,24 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
 
             noise = torch.randn((curr_batch_size, underlying_dim, noise_dim), device=device,dtype=torch.float)
 
-            fake = gen(noise,condition)
-            fake_and_cond = torch.cat((condition,fake),dim=-1)
+            fake = gen(noise,condition) # last layer is sigmoid so fake values are all between 0 and 1
+            fake_and_cond = torch.cat((condition,fake),dim=-1) 
 
-            disc_fake_pred = disc(fake_and_cond.detach())
+            disc_fake_pred = disc(fake_and_cond.detach()) 
+            # last layer is sigmoid so fake values should all be between 0 and 1 
+            # #oh there are nan values for some reason maybe propogating from generator
             disc_real_pred = disc(real_and_cond)
+
             disc_fake_loss = criterion(disc_fake_pred, torch.zeros_like(disc_fake_pred))
             disc_real_loss = criterion(disc_real_pred, torch.ones_like(disc_real_pred))
+
             disc_loss = (disc_fake_loss + disc_real_loss) / 2
             disc_loss.backward()
             disc_opt.step()
             
+            # TRAINING LOOP IS WORKING UP UNTIL HERE
+            # BEFORE THERE WERE NAN PROBLEMS SO THAT THE LOSS COULD NOT BE CALCULATED
+
             dscpred_real[epoch*n_batches+i] = disc_real_pred[0].detach().item()
             dscpred_fake[epoch*n_batches+i] = disc_fake_pred[0].detach().item()
             
@@ -462,8 +477,7 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
             noise = torch.randn((curr_batch_size, underlying_dim, noise_dim), device=device,dtype=torch.float)
             fake = gen(noise,condition)
 
-            fake_and_cond = torch.cat((condition,fake),dim=-1)
-            
+            fake_and_cond = torch.cat((condition,fake),dim=-1) 
             disc_fake_pred = disc(fake_and_cond)
             
             fake_surface = torch.exp(fake[:,1:]+ surface_past)
