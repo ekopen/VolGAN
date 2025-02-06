@@ -367,7 +367,7 @@ def VolGAN(datapath, surfacepath, tr, vol_model = 'normal',
     criterion = nn.BCELoss()
     criterion = criterion.to(device)
     
-    gen,gen_opt,disc,disc_opt,criterion, alpha, beta = GradientMatching(gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,tenor,tau,tenors,taus,n_grad,lrg,lrd,batch_size,noise_dim,device)
+    gen,gen_opt,disc,disc_opt,criterion, alpha, beta = GradientMatching(gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,tenor,tau,tenors,taus,n_grad,lrg,lrd,batch_size,noise_dim,device, vol_model=vol_model)
     gen,gen_opt,disc,disc_opt,criterion = TrainLoopNoVal(alpha,beta,gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,tenor,tau,tenors,taus,n_epochs,lrg,lrd,batch_size,noise_dim,device)
     
     return gen, gen_opt, disc, disc_opt, true_train, true_val, true_test, condition_train, condition_val, condition_test, dates_t,  tenor, tau, tenors, taus
@@ -376,7 +376,7 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
                      condition_train,true_train,
                      tenor,tau,tenors,taus,
                      n_grad,lrg,lrd,batch_size,noise_dim,
-                     device, lk = 10, lt = 8):
+                     device, lk = 10, lt = 8, vol_model = 'normal'):
     """
     perform gradient matching
     """
@@ -464,14 +464,17 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
             disc_loss.backward()
             disc_opt.step()
             
-            # TRAINING LOOP IS WORKING UP UNTIL HERE
-            # BEFORE THERE WERE NAN PROBLEMS SO THAT THE LOSS COULD NOT BE CALCULATED
+            # in the original VolGAN the prediction had shape (batch size, 1) 
+            # now with tensors it doesn't really like this dimensionality 
 
-            dscpred_real[epoch*n_batches+i] = disc_real_pred[0].detach().item()
-            dscpred_fake[epoch*n_batches+i] = disc_fake_pred[0].detach().item()
+            # dscpred_real[epoch*n_batches+i] = disc_real_pred[0].detach().item()
+            # dscpred_fake[epoch*n_batches+i] = disc_fake_pred[0].detach().item()
             
-            discloss[epoch*n_batches+i] = disc_loss.detach().item()
+            # discloss[epoch*n_batches+i] = disc_loss.detach().item()
             
+            # these don't seem to be working right now but might be a useful metric for evaluation later
+            # will comment these out for now
+
             #update the generator
             gen_opt.zero_grad()
             noise = torch.randn((curr_batch_size, underlying_dim, noise_dim), device=device,dtype=torch.float)
@@ -480,14 +483,20 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
             fake_and_cond = torch.cat((condition,fake),dim=-1) 
             disc_fake_pred = disc(fake_and_cond)
             
-            fake_surface = torch.exp(fake[:,1:]+ surface_past)
+            if vol_model == 'normal':
+                fake_surface = fake[:,:,1:]+ surface_past
+            elif vol_model == 'log':
+                fake_surface = torch.exp(fake[:,:,1:]+ surface_past)
 
-            penalties_m = [None] * curr_batch_size
+            # TRAINING LOOP IS WORKING UP UNTIL HERE
+            # BEFORE THERE WERE NAN PROBLEMS SO THAT THE LOSS COULD NOT BE CALCULATED
+
+            penalties_tenor = [None] * curr_batch_size
             penalties_t = [None] * curr_batch_size
             for iii in range(curr_batch_size):
-                penalties_m[iii] = torch.matmul(m_seq,(torch.matmul(matrix_tenor,fake_surface[iii])**2))
+                penalties_tenor[iii] = torch.matmul(m_seq,(torch.matmul(matrix_tenor,fake_surface[iii])**2))
                 penalties_t[iii] = torch.matmul(tsq,(torch.matmul(matrix_t,fake_surface[iii])**2))
-            m_penalty = sum(penalties_m) / curr_batch_size
+            m_penalty = sum(penalties_tenor) / curr_batch_size
             t_penalty = sum(penalties_t) / curr_batch_size
             
             m_penalty.backward(retain_graph=True)
