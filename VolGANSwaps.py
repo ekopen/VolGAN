@@ -467,7 +467,7 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
             disc_opt.step()
             
             # in the original VolGAN the prediction had shape (batch size, 1) 
-            # now with tensors it doesn't really like this dimensionality 
+            # now with tensors the following code doesn't really like this dimensionality 
 
             # dscpred_real[epoch*n_batches+i] = disc_real_pred[0].detach().item()
             # dscpred_fake[epoch*n_batches+i] = disc_fake_pred[0].detach().item()
@@ -475,6 +475,8 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
             # discloss[epoch*n_batches+i] = disc_loss.detach().item()
             
             # these don't seem to be working right now but might be a useful metric for evaluation later
+            # need to think of how to exactly store them 
+            # doesn't seem to be used in training process directly
             # will comment these out for now
 
             #update the generator
@@ -542,7 +544,7 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
 def TrainLoopNoVal(alpha,beta,
                    gen,gen_opt,disc,disc_opt,
                    criterion,condition_train,true_train,
-                   tenor,tau,tenors,taus,
+                   tenor,tau, tenors,taus,
                    n_epochs,lrg,lrd,
                    batch_size,noise_dim,device, 
                    lk = 15, lt = 9, vol_model = 'normal'):
@@ -550,6 +552,7 @@ def TrainLoopNoVal(alpha,beta,
     train loop for VolGAN
     """
     n_train = condition_train.shape[0]
+    underlying_dim = condition_train.shape[1]
     n_batches =  n_train // batch_size + 1
     dtm = tau * 365
     #mP_t,mP_k,mPb_K = penalty_mutau_tensor(m,dtm,device)
@@ -571,9 +574,9 @@ def TrainLoopNoVal(alpha,beta,
         matrix_tenor[i,i] = -1
         matrix_tenor[i,i+lk] = 1
         
-    m_seq = torch.zeros((lk*(lt-1)),dtype=torch.float,device=device)
+    tenor_seq = torch.zeros((lk*(lt-1)),dtype=torch.float,device=device)
     for i in range(tenor_t.shape[0]-1):
-        m_seq[i*lk:(i+1)*lk] = 1/((tenor_t[i+1]-tenor_t[i])**2)
+        tenor_seq[i*lk:(i+1)*lk] = 1/((tenor_t[i+1]-tenor_t[i])**2)
     
     discloss = [False] * (n_batches*n_epochs)
     genloss = [False] * (n_batches*n_epochs)
@@ -591,14 +594,15 @@ def TrainLoopNoVal(alpha,beta,
             curr_batch_size = batch_size
             if i==(n_batches-1):
                 curr_batch_size = n_train-i*batch_size
-            condition = condition_train[(i*batch_size):(i*batch_size+curr_batch_size),:]
-            surface_past = condition_train[(i*batch_size):(i*batch_size+curr_batch_size),3:]
-            real = true_train[(i*batch_size):(i*batch_size+curr_batch_size),:]
+            condition = condition_train[(i*batch_size):(i*batch_size+curr_batch_size),:,:]
+            surface_past = condition_train[(i*batch_size):(i*batch_size+curr_batch_size),:,3:]
+            real = true_train[(i*batch_size):(i*batch_size+curr_batch_size),:,:]
 
             real_and_cond = torch.cat((condition,real),dim=-1)
             #update the discriminator
             disc_opt.zero_grad()
-            noise = torch.randn((curr_batch_size,noise_dim), device=device,dtype=torch.float)
+            noise = torch.randn((curr_batch_size, underlying_dim, noise_dim), device=device,dtype=torch.float)
+
             fake = gen(noise,condition)
             fake_and_cond = torch.cat((condition,fake),dim=-1)
 
@@ -610,27 +614,31 @@ def TrainLoopNoVal(alpha,beta,
             disc_loss.backward()
             disc_opt.step()
             
-            dscpred_real[epoch*n_batches+i] = disc_real_pred[0].detach().item()
-            dscpred_fake[epoch*n_batches+i] = disc_fake_pred[0].detach().item()
+            # Comment these out for same reason as above
+            # dscpred_real[epoch*n_batches+i] = disc_real_pred[0].detach().item()
+            # dscpred_fake[epoch*n_batches+i] = disc_fake_pred[0].detach().item()
             
-            discloss[epoch*n_batches+i] = disc_loss.detach().item()
+            # discloss[epoch*n_batches+i] = disc_loss.detach().item()
             
             #update the generator
             gen_opt.zero_grad()
-            noise = torch.randn((curr_batch_size,noise_dim), device=device,dtype=torch.float)
+            noise = torch.randn((curr_batch_size,underlying_dim,noise_dim), device=device,dtype=torch.float)
             fake = gen(noise,condition)
 
             fake_and_cond = torch.cat((condition,fake),dim=-1)
             
             disc_fake_pred = disc(fake_and_cond)
             
-            # fake_surface = torch.exp(fake[:,1:]+ surface_past)
-            fake_surface = fake[:,1:]+ surface_past
+
+            if vol_model == 'normal':
+                fake_surface = fake[:,:,1:] + surface_past
+            elif vol_model == 'log':
+                fake_surface = torch.exp(fake[:,1:]+ surface_past)
 
             penalties_m = [None] * curr_batch_size
             penalties_t = [None] * curr_batch_size
             for iii in range(curr_batch_size):
-                penalties_m[iii] = torch.matmul(m_seq,(torch.matmul(matrix_tenor,fake_surface[iii])**2))
+                penalties_m[iii] = torch.matmul(tenor_seq,(torch.matmul(matrix_tenor,fake_surface[iii])**2))
                 penalties_t[iii] = torch.matmul(tsq,(torch.matmul(matrix_t,fake_surface[iii])**2))
             m_penalty = sum(penalties_m) / curr_batch_size
             t_penalty = sum(penalties_t) / curr_batch_size
