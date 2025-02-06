@@ -376,7 +376,7 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
                      condition_train,true_train,
                      tenor,tau,tenors,taus,
                      n_grad,lrg,lrd,batch_size,noise_dim,
-                     device, lk = 10, lt = 8, vol_model = 'normal'):
+                     device, lk = 16, lt = 9, vol_model = 'normal'):
     """
     perform gradient matching
     """
@@ -406,9 +406,9 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
         matrix_tenor[i,i] = -1
         matrix_tenor[i,i+lk] = 1
         
-    m_seq = torch.zeros((lk*(lt-1)),dtype=torch.float,device=device)
+    tenor_seq = torch.zeros((lk*(lt-1)),dtype=torch.float,device=device)
     for i in range(tenor_t.shape[0]-1):
-        m_seq[i*lk:(i+1)*lk] = 1/((tenor_t[i+1]-tenor_t[i])**2)
+        tenor_seq[i*lk:(i+1)*lk] = 1/((tenor_t[i+1]-tenor_t[i])**2)
     
     n_epochs = n_grad
     discloss = [False] * (n_batches*n_epochs)
@@ -418,7 +418,7 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
     gen_fake = [False] * (n_batches*n_epochs)
     genprices_fk = [False] * (n_batches*n_epochs)
     BCE_grad = []
-    m_smooth_grad = []
+    tenor_smooth_grad = []
     t_smooth_grad = []
     gen.train()
 
@@ -484,7 +484,7 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
             disc_fake_pred = disc(fake_and_cond)
             
             if vol_model == 'normal':
-                fake_surface = fake[:,:,1:]+ surface_past
+                fake_surface = fake[:,:,1:] + surface_past
             elif vol_model == 'log':
                 fake_surface = torch.exp(fake[:,:,1:]+ surface_past)
 
@@ -494,19 +494,19 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
             penalties_tenor = [None] * curr_batch_size
             penalties_t = [None] * curr_batch_size
             for iii in range(curr_batch_size):
-                penalties_tenor[iii] = torch.matmul(m_seq,(torch.matmul(matrix_tenor,fake_surface[iii])**2))
+                penalties_tenor[iii] = torch.matmul(tenor_seq,(torch.matmul(matrix_tenor,fake_surface[iii])**2))
                 penalties_t[iii] = torch.matmul(tsq,(torch.matmul(matrix_t,fake_surface[iii])**2))
-            m_penalty = sum(penalties_tenor) / curr_batch_size
+            tenor_penalty = sum(penalties_tenor) / curr_batch_size
             t_penalty = sum(penalties_t) / curr_batch_size
             
-            m_penalty.backward(retain_graph=True)
+            tenor_penalty.backward(retain_graph=True)
             total_norm = 0
             for p in gen.parameters():
                 param_norm = p.grad.data.norm(2)
                 total_norm += param_norm.item() ** 2
             total_norm = total_norm ** (1. / 2)
             #list of gradient norms
-            m_smooth_grad.append(total_norm)
+            tenor_smooth_grad.append(total_norm)
             gen_opt.zero_grad()
             
             t_penalty.backward(retain_graph=True)
@@ -534,7 +534,7 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
             genprices_fk[epoch*n_batches+i]= condition[0].detach()
         
             
-    alpha = np.mean(np.array(BCE_grad) / np.array(m_smooth_grad))
+    alpha = np.mean(np.array(BCE_grad) / np.array(tenor_smooth_grad))
     beta = np.mean(np.array(BCE_grad) / np.array(t_smooth_grad))
     print("alpha :", alpha, "beta :", beta)
     return gen,gen_opt,disc,disc_opt,criterion, alpha, beta
