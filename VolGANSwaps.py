@@ -675,3 +675,61 @@ def penalty_tensor(K,T,device):
         PB_K[i,i] = (K[i+1] - K[i-1]) / ((K[i]-K[i-1]) * (K[i+1]-K[i]))
         PB_K[i,i+1] = -(K[i]-K[i-1]) / ((K[i]-K[i-1]) * (K[i+1]-K[i]))
     return P_T,P_K,PB_K
+
+
+
+
+##############################
+##### BACHELIER MODEL  #####
+##############################
+
+def bachelier_swaption_price(St, K, Tau, sigma, swaption_type="call", annuity=1.0):
+    # call (payer swap), put (receiver)
+    """
+    Computes the Bachelier (Normal) model payer swaption price.
+    :param St: current forward swap rate
+    :param K: strike
+    :param Tau: time to expiry of the option (in years)
+    :param sigma: Normal volatility
+    :param annuity: The swap annuity or discount factor * notional factor (optional)
+    :return: The swaption price
+    """
+    d = (St - K) / (sigma * math.sqrt(Tau))
+
+    # Phi(d) -> cumulative distribution function
+    Nd = normal.cdf(d) if swaption_type=='call' else normal.cdf(d*(-1))
+    # phi(d) -> probability density function
+    nd = normal.pdf(d)
+
+    # Bachelier formula for a call option
+    price = (St - K) * Nd + sigma * math.sqrt(T-t) * nd if swaption_type=='call' else (K - St) * Nd + sigma * math.sqrt(T-t)
+
+    # Multiply by the annuity to convert from rate to currency
+    return annuity * price
+
+
+# TODO: need to modify it drastically
+def calculate_swap_annuity(sofr_rates, tenor, frequency=4):
+    """
+    Computes the swap annuity for a swaption using SOFR rates and discount factors.
+
+    :param sofr_rates: Dictionary of SOFR rates {maturity (years): rate}
+    :param tenor: Swap tenor (years)
+    :param frequency: Payment frequency per year (e.g., 1=Annual, 2=Semiannual, 4=Quarterly)
+    :return: Swap annuity
+    """
+    # Generate payment dates
+    payment_times = np.arange(1/frequency, tenor + 1/frequency, 1/frequency)  # e.g., [0.5, 1, 1.5, ..., 10]
+    year_fractions = np.full_like(payment_times, 1/frequency)  # All payments have the same Δ
+
+    # Compute discount factors PENDING CHANGES
+    discount_factors = np.exp(-np.interp(payment_times, list(sofr_rates.keys()), list(sofr_rates.values())) * payment_times)
+
+    # Compute annuity
+    annuity = np.sum(discount_factors * year_fractions)
+
+    return annuity
+
+
+
+    
