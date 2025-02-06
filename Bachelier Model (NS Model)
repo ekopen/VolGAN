@@ -89,3 +89,125 @@ class Bachelier_Model:
             p += Z * (term1 + term2)
 
         return p
+
+#Shared my Helper Functions with Aidan Resnick, Derek Li, and Madhave Menon
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import statsmodels.api as sm
+import seaborn as sns
+import warnings
+from scipy.optimize import fsolve
+warnings.filterwarnings("ignore")
+
+import sys
+sys.path.insert(0, '../cmds')
+from treasury_cmds import *
+
+def CF_matrix(df):
+    lst = []
+
+    for i in df.index:
+        cpn_dates = pd.DataFrame(get_coupon_dates(df.loc[i, "quote date"], df.loc[i, "maturity date"]))
+        cpn_dates.columns = ["CPN Date"]
+        cpn_dates[df.loc[i, "KYTREASNO"]] = 0
+
+        for j in range(len(cpn_dates)):
+            cpn_dates[df.loc[i, "KYTREASNO"]][j] = df.loc[i, "cpn rate"]/2
+
+        cpn_dates[df.loc[i, "KYTREASNO"]][len(cpn_dates)-1] += 100
+        cpn_dates = cpn_dates.set_index("CPN Date")
+        cpn_dates = cpn_dates.T
+
+        lst.append(cpn_dates)
+
+    df = pd.concat(lst).fillna(0)
+    df = df.loc[:, df.sum(axis=0) != 0]
+
+    return df
+
+def NS_model(df):
+    CF = CF_matrix(df)
+    prices = df["dirty price"]
+    t_current = df["quote date"].values[0]
+
+    AVG_LEVEL = .045
+    AVG_SLOPE = -.005
+    FIRST_HUMP = .01
+    FIRST_DECAY = 2
+
+    x0 = np.array([AVG_LEVEL, AVG_SLOPE, FIRST_HUMP, FIRST_DECAY])
+    params_NS = estimate_rate_curve(nelson_siegel,CF,t_current,prices,x0)
+    tab_params_ns = pd.DataFrame(data = params_NS, index=['theta 0', 'theta 1', 'theta 2', 'lambda 1'],columns=['Nelson-Siegel']).T
+    return tab_params_ns
+
+def ns_fit(theta0, theta1, theta2, lambda1, maturity):
+    if np.isscalar(maturity):
+        maturity = np.array([maturity])
+
+    rate = theta0 + (theta1 + theta2) * (1 - np.exp(-maturity / lambda1)) / (maturity / lambda1) - theta2 * np.exp(-maturity / lambda1)
+    
+    return pd.DataFrame({"t": maturity, "Discount Rates": rate}).set_index("t")
+
+
+class Bachelier_Model:
+    def __init__(self, df, T0, Ts, sig, K, F):
+        self.params = NS_model(df)
+
+        self.theta0 = self.params["theta 0"].iloc[0]
+        self.theta1 = self.params["theta 1"].iloc[0]
+        self.theta2 = self.params["theta 2"].iloc[0]
+        self.lambda1 = self.params["lambda 1"].iloc[0]
+
+        self.sig = sig
+        self.K = K
+        self.F = F
+        self.T0 = T0
+        self.Ts = Ts
+
+    def price(self):
+        d = (self.F - self.K) / (self.sig * np.sqrt(self.T0))
+        p = 0
+        norm_dist = stats.norm()
+
+        for i in np.arange(self.T0 + 0.25, self.Ts + self.T0 + 0.25, 0.25):
+            r_df = ns_fit(self.theta0, self.theta1, self.theta2, self.lambda1, i)
+            r = r_df["Discount Rates"].iloc[0]
+            
+            term1 = (self.F - self.K) * norm_dist.cdf(d)
+            term2 = (self.sig * np.sqrt(self.T0)) * norm_dist.pdf(d)
+
+            Z = np.exp(-r * i)
+            p += Z * (term1 + term2)
+
+        return p
+    
+class Bachelier_Model_given_params:
+    def __init__(self, params, T0, Ts, sig, K, F):
+        self.theta0 = params["theta 0"].iloc[0]
+        self.theta1 = params["theta 1"].iloc[0]
+        self.theta2 = params["theta 2"].iloc[0]
+        self.lambda1 = params["lambda 1"].iloc[0]
+
+        self.sig = sig
+        self.K = K
+        self.F = F
+        self.T0 = T0
+        self.Ts = Ts
+
+    def price(self):
+        d = (self.F - self.K) / (self.sig * np.sqrt(self.T0))
+        p = 0
+        norm_dist = stats.norm()
+
+        for i in np.arange(self.T0 + 0.25, self.Ts + self.T0 + 0.25, 0.25):
+            r_df = ns_fit(self.theta0, self.theta1, self.theta2, self.lambda1, i)
+            r = r_df["Discount Rates"].iloc[0]
+            
+            term1 = (self.F - self.K) * norm_dist.cdf(d)
+            term2 = (self.sig * np.sqrt(self.T0)) * norm_dist.pdf(d)
+
+            Z = np.exp(-r * i)
+            p += Z * (term1 + term2)
+
+        return p
