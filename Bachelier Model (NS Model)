@@ -49,7 +49,7 @@ class Bachelier_Model:
         p = 0
         norm_dist = stats.norm()
         
-        for i in np.arange(T0+0.25, Ts+0.25, 0.25):
+        for i in np.arange(T0+0.25, Ts+T0+0.25, 0.25):
             r = ns_fit(self.theta0, self.theta1, self.theta2, self.lambda1, i)
             term1 = (self.F - self.K) * norm_dist.cdf(d)
             term2 = (self.sig * np.sqrt(self.T0)) * norm_dist.pdf(d)
