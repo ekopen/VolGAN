@@ -541,6 +541,142 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
     return gen,gen_opt,disc,disc_opt,criterion, alpha, beta
     # GRADIENT MATCHING TRAINING LOOP IS WORKING 
 
+def GradientMatchingPlot(gen,gen_opt,disc,disc_opt,criterion,
+                        condition_train,true_train,
+                        tenor,tau,tenors,taus,
+                        n_grad,lrg,lrd,batch_size,noise_dim,
+                        device, lk = 15, lt = 9, vol_model = 'normal'):
+    """
+    perform gradient matching and plot
+    """
+    n_train = condition_train.shape[0]
+    underlying_dim = condition_train.shape[1]
+    n_batches =  n_train // batch_size + 1
+    dtm = tau * 365
+
+    tenor_t = torch.tensor(tenor,dtype=torch.float,device=device)
+    
+    #smoothness penalties
+    Ngrid = lk * lt
+    tau_t = torch.tensor(tau,dtype=torch.float,device=device)
+    t_seq = torch.zeros((tau_t.shape[0]),dtype=torch.float,device=device)
+    for i in range(tau_t.shape[0]-1):
+        t_seq[i] = 1/((tau_t[i+1]-tau_t[i])**2)
+    matrix_t = torch.zeros((Ngrid,Ngrid), device = device, dtype = torch.float)
+    for i in range(Ngrid-1):
+        matrix_t[i,i] = -1
+        matrix_t[i,i+1] = 1
+    tsq = t_seq.repeat(lk).unsqueeze(0)
+    matrix_tenor = torch.zeros((Ngrid-lk,Ngrid), device = device, dtype = torch.float)
+    for i in range(Ngrid-lk):
+        matrix_tenor[i,i] = -1
+        matrix_tenor[i,i+lk] = 1
+        
+    tenor_seq = torch.zeros((lk*(lt-1)),dtype=torch.float,device=device)
+    for i in range(tenor_t.shape[0]-1):
+        tenor_seq[i*lk:(i+1)*lk] = 1/((tenor_t[i+1]-tenor_t[i])**2)
+    
+    n_epochs = n_grad
+    BCE_grad = []
+    tenor_smooth_grad = []
+    t_smooth_grad = []
+    gen.train()
+
+    for epoch in tqdm(range(n_epochs)):
+        perm = torch.randperm(n_train)
+        condition_train = condition_train[perm,:]
+        true_train = true_train[perm,:]
+
+        for i in range(n_batches):
+            curr_batch_size = batch_size
+            if i==(n_batches-1):
+                curr_batch_size = n_train-i*batch_size
+            
+            condition = condition_train[(i*batch_size):(i*batch_size+curr_batch_size),:,:]
+            surface_past = condition_train[(i*batch_size):(i*batch_size+curr_batch_size),:,3:]
+            real = true_train[(i*batch_size):(i*batch_size+curr_batch_size),:,:]
+
+            real_and_cond = torch.cat((condition,real),dim=-1)
+            
+            #update the discriminator
+            disc_opt.zero_grad()
+            noise = torch.randn((curr_batch_size, underlying_dim, noise_dim), device=device,dtype=torch.float)
+            fake = gen(noise,condition)
+            fake_and_cond = torch.cat((condition,fake),dim=-1)
+
+            disc_fake_pred = disc(fake_and_cond.detach())
+            disc_real_pred = disc(real_and_cond)
+
+            disc_fake_loss = criterion(disc_fake_pred, torch.zeros_like(disc_fake_pred))
+            disc_real_loss = criterion(disc_real_pred, torch.ones_like(disc_real_pred))
+
+            disc_loss = (disc_fake_loss + disc_real_loss) / 2
+            disc_loss.backward()
+            disc_opt.step()
+
+            #update the generator
+            gen_opt.zero_grad()
+            noise = torch.randn((curr_batch_size, underlying_dim, noise_dim), device=device,dtype=torch.float)
+            fake = gen(noise,condition)
+
+            fake_and_cond = torch.cat((condition,fake),dim=-1)
+            disc_fake_pred = disc(fake_and_cond)
+
+            if vol_model == 'normal':
+                fake_surface = fake[:,:,1:] + surface_past
+            elif vol_model == 'log':
+                fake_surface = torch.exp(fake[:,:,1:] + surface_past)
+
+            penalties_tenor = [torch.matmul(tenor_seq,(torch.matmul(matrix_tenor,fake_surface[iii])**2)) for iii in range(curr_batch_size)]
+            penalties_t = [torch.matmul(tsq,(torch.matmul(matrix_t,fake_surface[iii])**2)) for iii in range(curr_batch_size)]
+            
+            tenor_penalty = sum(penalties_tenor) / curr_batch_size
+            t_penalty = sum(penalties_t) / curr_batch_size
+
+            tenor_penalty.backward(retain_graph=True)
+            total_norm = sum(p.grad.data.norm(2).item() ** 2 for p in gen.parameters()) ** 0.5
+            tenor_smooth_grad.append(total_norm)
+            gen_opt.zero_grad()
+
+            t_penalty.backward(retain_graph=True)
+            total_norm = sum(p.grad.data.norm(2).item() ** 2 for p in gen.parameters()) ** 0.5
+            t_smooth_grad.append(total_norm)
+            gen_opt.zero_grad()
+
+            gen_loss = criterion(disc_fake_pred, torch.ones_like(disc_fake_pred))
+            gen_loss.backward()
+            total_norm = sum(p.grad.data.norm(2).item() ** 2 for p in gen.parameters()) ** 0.5
+            BCE_grad.append(total_norm)
+            gen_opt.step()
+
+    alpha = np.mean(np.array(BCE_grad) / np.array(tenor_smooth_grad))
+    beta = np.mean(np.array(BCE_grad) / np.array(t_smooth_grad))
+
+    plt.figure("BCE norm")
+    plt.plot(range(len(BCE_grad)), BCE_grad)
+    plt.xlabel("iteration")
+    plt.ylabel("gradient norm")
+    plt.title("BCE gradient norm")
+    plt.show()
+
+    plt.figure("Smoothness tenor")
+    plt.plot(range(len(BCE_grad)), tenor_smooth_grad)
+    plt.xlabel("iteration")
+    plt.ylabel("gradient norm")
+    plt.title("Smoothness penalty for tenor gradient norm")
+    plt.show()
+
+    plt.figure("Smoothness tau")
+    plt.plot(range(len(BCE_grad)), t_smooth_grad)
+    plt.xlabel("iteration")
+    plt.ylabel("gradient norm")
+    plt.title("Smoothness penalty for time to maturity gradient norm")
+    plt.show()
+
+    print("alpha :", alpha, "beta :", beta)
+    return gen, gen_opt, disc, disc_opt, criterion, alpha, beta
+
+
 def TrainLoopNoVal(alpha,beta,
                    gen,gen_opt,disc,disc_opt,
                    criterion,condition_train,true_train,
