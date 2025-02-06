@@ -210,3 +210,30 @@ class Bachelier_Model_given_params:
             p += Z * (term1 + term2)
 
         return p
+
+#Note that you need to have all the values for the maturities given
+class Bachelier_Model_given_dr:
+    def __init__(self, r, T0, Ts, sig, K, F):
+        self.r = r
+
+        self.sig = sig
+        self.K = K
+        self.F = F
+        self.T0 = T0
+        self.Ts = Ts
+
+    def price(self):
+        d = (self.F - self.K) / (self.sig * np.sqrt(self.T0))
+        p = 0
+        norm_dist = stats.norm()
+
+        for i in np.arange(self.T0 + 0.25, self.Ts + self.T0 + 0.25, 0.25):
+            r = self.r.loc[i].values[0]
+            
+            term1 = (self.F - self.K) * norm_dist.cdf(d)
+            term2 = (self.sig * np.sqrt(self.T0)) * norm_dist.pdf(d)
+
+            Z = np.exp(-r * i)
+            p += Z * (term1 + term2)
+
+        return p
