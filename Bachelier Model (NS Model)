@@ -237,3 +237,36 @@ class Bachelier_Model_given_dr:
             p += Z * (term1 + term2)
 
         return p
+
+class Bachelier_tensor:
+    def __init__(self, df, T0, Ts, sig, K, F):
+        self.params = NS_model(df)
+        self.theta0 = self.params["theta 0"].iloc[0]
+        self.theta1 = self.params["theta 1"].iloc[0]
+        self.theta2 = self.params["theta 2"].iloc[0]
+        self.lambda1 = self.params["lambda 1"].iloc[0]
+        
+        self.sig = torch.tensor(sig, dtype=torch.float32)
+        self.K   = torch.tensor(K, dtype=torch.float32)
+        self.F   = torch.tensor(F, dtype=torch.float32)
+        self.T0  = T0
+        self.Ts  = Ts
+        
+    def price(self):
+        T0_tensor = torch.tensor(self.T0, dtype=torch.float32)
+        d = (self.F - self.K) / (self.sig * torch.sqrt(T0_tensor))
+        norm = torch.distributions.Normal(torch.tensor(0.0), torch.tensor(1.0))
+        term1 = (self.F - self.K) * norm.cdf(d)
+        term2 = self.sig * torch.sqrt(T0_tensor) * torch.exp(norm.log_prob(d))
+        p = torch.tensor(0.0, dtype=torch.float32)
+        times = torch.arange(self.T0 + 0.25, self.Ts + self.T0 + 0.25, 0.25)
+        
+        for t in times:
+            t_val = t.item()
+            r_df = ns_fit(self.theta0, self.theta1, self.theta2, self.lambda1, t_val)
+            r = r_df["Discount Rates"].iloc[0]
+            r_tensor = torch.tensor(r, dtype=torch.float32)
+            Z = torch.exp(-r_tensor * t)
+            p = p + Z * (term1 + term2)
+        
+        return p
