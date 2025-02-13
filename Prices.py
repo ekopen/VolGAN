@@ -6,6 +6,8 @@ import seaborn as sns
 import warnings
 import numpy as np
 import scipy.stats as stats
+from scipy.optimize import curve_fit
+from scipy.stats import norm
 from scipy.optimize import fsolve
 warnings.filterwarnings("ignore")
 import Inputs
@@ -42,6 +44,11 @@ class Bachelier_Model:
         self.F = F
         self.T0 = T0
         self.Ts = Ts
+        
+    def nelson_siegel(self, maturity, theta0, theta1, theta2, lambda1):
+        rate = theta0 + (theta1 + theta2) * (1 - np.exp(-maturity/lambda1))/(maturity/lambda1) - theta2 * np.exp(-maturity/lambda1)
+
+        return rate
 
     def price(self):
         d = (self.F - self.K) / (self.sig * np.sqrt(self.T0))
@@ -55,9 +62,12 @@ class Bachelier_Model:
 
         time_points = r.index.to_numpy(dtype=float)
         rate_values = r.to_numpy(dtype=float)
+        
+        initial_guess = [np.mean(rate_values), -1, 1, 2]
+        params, _ = curve_fit(self.nelson_siegel, time_points, rate_values, p0=initial_guess)
 
         for i in np.arange(self.T0 + 0.25, self.Ts + self.T0 + 0.25, 0.25):
-            r_interp = np.interp(i, time_points, rate_values)
+            r_interp = self.nelson_siegel(i, *params)
 
             term1 = (self.F - self.K) * norm_dist.cdf(d)
             term2 = (self.sig * np.sqrt(self.T0)) * norm_dist.pdf(d)
