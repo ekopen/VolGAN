@@ -1,4 +1,6 @@
-# evaluation.py
+# Evaluation.py
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 
 import torch
 import numpy as np
@@ -138,9 +140,9 @@ def plot_forecast_vs_actual_vol_surface(gen, condition_test, true_test, noise_di
 
 
 # Uncomment the lines below to perform a simple test if running this file directly.
-if __name__ == "__main__":
-    # Example dummy data (for testing purposes only)
-    iterations = np.arange(50)
-    grad_norms = np.random.uniform(0.4, 0.6, size=50)
-    arb_penalties = np.random.uniform(8.0, 12.0, size=50)
-    plot_gradient_norm_and_arb_penalties(iterations, grad_norms, arb_penalties)
+# if __name__ == "__main__":
+#     # Example dummy data (for testing purposes only)
+#     iterations = np.arange(50)
+#     grad_norms = np.random.uniform(0.4, 0.6, size=50)
+#     arb_penalties = np.random.uniform(8.0, 12.0, size=50)
+#     plot_gradient_norm_and_arb_penalties(iterations, grad_norms, arb_penalties)
