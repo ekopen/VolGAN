@@ -67,7 +67,7 @@ def reweighting_stats_mean(penalties,beta):
         mean_after[i] = np.sum(transform[i,:] * data_m[i,:])
         args = np.argsort(data_m[i])
         data_m[i,:] = data_m[i,args]
-        transform[i,:] = transform[i,:]
+        transform[i,:] = transform[i,args]
         med = data_m[i,0]
         sm = 0
         j = 0
