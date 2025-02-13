@@ -3,8 +3,11 @@ import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 
 import torch
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+
 
 def plot_gradient_norm_and_arb_penalties(iterations, grad_norms, arb_penalties):
     """
@@ -137,6 +140,80 @@ def plot_forecast_vs_actual_vol_surface(gen, condition_test, true_test, noise_di
     
     plt.tight_layout()
     plt.show()
+
+
+
+def evaluate_prediction_accuracy(forecast, true_sample):
+    """
+    Evaluates the accuracy of the generator's swaption return forecast.
+
+    Parameters:
+        forecast (np.array): Predicted returns, shape (num_assets, output_dim)
+        true_sample (np.array): True returns, shape (num_assets, output_dim)
+
+    Returns:
+        dict: Dictionary containing evaluation metrics.
+    """
+    # Extract the annualized return column (column 0)
+    forecast_returns = forecast[:, 0]
+    true_returns = true_sample[:, 0]
+
+    # Compute metrics
+    mae = mean_absolute_error(true_returns, forecast_returns)
+    mse = mean_squared_error(true_returns, forecast_returns)
+    rmse = np.sqrt(mse)
+    r2 = r2_score(true_returns, forecast_returns)
+    mape = np.mean(np.abs((true_returns - forecast_returns) / true_returns)) * 100  # Convert to %
+
+    # Return results
+    return {
+        "MAE": mae,
+        "MSE": mse,
+        "RMSE": rmse,
+        "R-squared": r2,
+        "MAPE (%)": mape
+    }
+
+
+def evaluate_volatility_prediction_accuracy(forecast_vol, actual_vol):
+    """
+    Evaluates the accuracy of the generator's volatility surface forecast.
+
+    Parameters:
+        forecast_vol (np.array): Predicted volatilities, shape (grid_rows, grid_cols)
+        actual_vol (np.array): True volatilities, shape (grid_rows, grid_cols)
+
+    Returns:
+        dict: Dictionary containing evaluation metrics.
+    """
+    # Flatten volatility surfaces for metric calculations
+    forecast_vol = forecast_vol.flatten()
+    actual_vol = actual_vol.flatten()
+
+    # Compute metrics
+    mae = mean_absolute_error(actual_vol, forecast_vol)
+    mse = mean_squared_error(actual_vol, forecast_vol)
+    rmse = np.sqrt(mse)
+    r2 = r2_score(actual_vol, forecast_vol)
+    mape = np.mean(np.abs((actual_vol - forecast_vol) / actual_vol)) * 100  # Convert to %
+
+    # Forecast bias (mean signed error)
+    bias = np.mean(forecast_vol - actual_vol)
+
+    # RMSE ratio: compare RMSE to a simple historical volatility benchmark (naïve)
+    naive_rmse = np.sqrt(np.mean(np.square(actual_vol - np.mean(actual_vol))))
+    rmse_ratio = rmse / naive_rmse if naive_rmse != 0 else np.nan
+
+    return {
+        "MAE": mae,
+        "MSE": mse,
+        "RMSE": rmse,
+        "R-squared": r2,
+        "MAPE (%)": mape,
+        "Forecast Bias": bias,
+        "RMSE Ratio": rmse_ratio
+    }
+
 
 
 # Uncomment the lines below to perform a simple test if running this file directly.
