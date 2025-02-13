@@ -35,7 +35,7 @@ def SwapsData(datapath, surfacespath):
     dates_dt = returns.index
     
     # PROCESS VOLATILITY SURFACE DATA
-    volatilities = pd.read_excel(surfacespath, skiprows=2).set_index("Ticker")
+    volatilities = pd.read_excel(surfacespath, skiprows=2).set_index("Ticker").sort_index()
     mat_n_ten = Inputs.maturity_tenor(surfacespath).T  
 
     # Initialize matrix
