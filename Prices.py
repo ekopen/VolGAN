@@ -107,3 +107,21 @@ def grid_prices(date):
     df = all_prices(date)
     grid = df.pivot(index='Tenor', columns="Maturity", values='Price')
     return grid
+
+def arbitrage(date):
+    df = grid_prices(date)
+    violations_down = (df.diff(axis=0) < 0)
+    violations_right = (df.diff(axis=1) < 0)
+
+    violations_combined = violations_down | violations_right
+    
+    s1 = violations_combined.sum().sum()
+    return s1/violations_combined.size
+
+def total_penalty():
+    s1 = 0
+    
+    for i in gen_s.index:
+        s1 += arbitrage(i)
+    
+    return s1/len(gen_s.index)
