@@ -36,7 +36,7 @@ def SwapsData(datapath, surfacespath):
     
     # PROCESS VOLATILITY SURFACE DATA
     volatilities = pd.read_excel(surfacespath, skiprows=2).set_index("Ticker").sort_index()
-    mat_n_ten = Inputs.maturity_tenor(surfacespath).T  
+    mat_n_ten = Inputs.maturity_tenor(surfacespath).T 
 
     # Initialize matrix
     surfaces_transform = np.empty((returns.shape[0], returns.shape[1]))  # Preallocate memory
@@ -52,7 +52,7 @@ def SwapsData(datapath, surfacespath):
     # t \in {\frac{1}{12}, \frac{1}{4}, \frac{1}{2}, \frac{3}{4}, 1, 1.5, 2, 3, 4, 5, 7, 10, 15, 20, 25, 30}
     # we removed 30 year because of missing data
 
-    tenor = np.array([1/12, 1/4, 1/2, 3/4, 1, 1.5, 2, 3, 4, 5, 7, 10, 15, 20, 25])
+    tenor = np.array([1/12, 1/4, 1/2, 3/4, 1, 1.5, 2, 3, 4, 5, 7, 10, 15, 20, 25, 30])
     # \tau \in {1, 2, 3, 4, 5, 6, 7, 8, 9}
     tau = np.linspace(1, 9, 9) 
     
