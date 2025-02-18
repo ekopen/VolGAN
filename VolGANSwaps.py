@@ -378,7 +378,7 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
                      condition_train,true_train,
                      tenor,tau,tenors,taus,
                      n_grad,lrg,lrd,batch_size,noise_dim,
-                     device, lk = 15, lt = 9, vol_model = 'normal'):
+                     device, lk = 16, lt = 9, vol_model = 'normal'):
     """
     perform gradient matching
     """
@@ -545,7 +545,7 @@ def GradientMatchingPlot(gen,gen_opt,disc,disc_opt,criterion,
                         condition_train,true_train,
                         tenor,tau,tenors,taus,
                         n_grad,lrg,lrd,batch_size,noise_dim,
-                        device, lk = 15, lt = 9, vol_model = 'normal'):
+                        device, lk = 16, lt = 9, vol_model = 'normal'):
     """
     perform gradient matching and plot
     """
@@ -683,7 +683,7 @@ def TrainLoopNoVal(alpha,beta,
                    tenor,tau, tenors,taus,
                    n_epochs,lrg,lrd,
                    batch_size,noise_dim,device, 
-                   lk = 15, lt = 9, vol_model = 'normal'):
+                   lk = 16, lt = 9, vol_model = 'normal'):
     """
     train loop for VolGAN
     """
