@@ -96,7 +96,7 @@ def all_prices(date, gen_s):
     
     df["Vol"] = d2.values
     
-    Z = data_prep("usd_sofr_curve_full.xlsx")
+    Z = data_prep("data/usd_sofr_curve_full.xlsx")
     
     BM = Bachelier_Model(Z, date, 0, 0, 0, 0, 0)
     lst = []
