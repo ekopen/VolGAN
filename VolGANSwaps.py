@@ -769,7 +769,7 @@ def TrainLoopNoVal(alpha,beta,
             if vol_model == 'normal':
                 fake_surface = fake[:,:,1:] + surface_past
             elif vol_model == 'log':
-                fake_surface = torch.exp(fake[:,1:]+ surface_past)
+                fake_surface = torch.exp(fake[:,:,1:]+ surface_past)
 
             penalties_m = [None] * curr_batch_size
             penalties_t = [None] * curr_batch_size
