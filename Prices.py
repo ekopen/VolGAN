@@ -105,8 +105,8 @@ def all_prices(date):
     
     for i in range(len(df)):
         BM.sig = df["Vol"].iloc[i]/100
-        BM.F = df["Forward"].iloc[i]
-        BM.K = df["Forward"].iloc[i]
+        BM.F = df["Forward"].iloc[i]/100
+        BM.K = df["Forward"].iloc[i]/100
         BM.T0 = df["Maturity"].iloc[i]
         BM.Ts = df["Tenor"].iloc[i]
         
