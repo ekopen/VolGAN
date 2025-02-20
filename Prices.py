@@ -55,7 +55,7 @@ class Bachelier_Model:
         p = 0
         norm_dist = stats.norm()
         
-        r = self.df.loc[self.date]
+        r = self.df.loc[self.date].dropna()
 
         if isinstance(r, pd.DataFrame):
             r = r.squeeze()
@@ -67,24 +67,14 @@ class Bachelier_Model:
         params, _ = curve_fit(self.nelson_siegel, time_points, rate_values, p0=initial_guess)
         
         
-        if self.Ts > 0.25:
-            for i in np.arange(self.T0 + 0.25, self.Ts + self.T0 + 0.25, 0.25):
-                r_interp = self.nelson_siegel(i, *params)
+        for i in np.arange(self.T0 + 0.25, self.Ts + self.T0 + 0.25, 0.25):
+            r_interp = self.nelson_siegel(i, *params)
 
-                term1 = (self.F - self.K) * norm_dist.cdf(d)
-                term2 = (self.sig * np.sqrt(self.T0)) * norm_dist.pdf(d)
+            term1 = (self.F - self.K) * norm_dist.cdf(d)
+            term2 = (self.sig * np.sqrt(self.T0)) * norm_dist.pdf(d)
 
-                Z = np.exp(-r_interp * i)
-                p += Z * (term1 + term2)
-        else:
-            for i in np.arange(self.T0 + self.Ts, self.Ts * 2 + self.T0, self.Ts):
-                r_interp = self.nelson_siegel(i, *params)
-
-                term1 = (self.F - self.K) * norm_dist.cdf(d)
-                term2 = (self.sig * np.sqrt(self.T0)) * norm_dist.pdf(d)
-
-                Z = np.exp(-r_interp * i)
-                p += Z * (term1 + term2)
+            Z = np.exp(-r_interp * i)
+            p += Z * (term1 + term2)
         
 
         return p
@@ -94,7 +84,8 @@ datapath = "swaption_atm_vol_full.xlsx"
 filepath = "forward_sofr_swap_full.xlsx"
 mat_n_ten1 = Inputs.maturity_tenor("forward_sofr_swap_full.xlsx").T
 
-gen_s = pd.read_csv("generated_surfaces.csv", skiprows = 2).iloc[1:, :].set_index("Ticker")
+#For Generated Surfaces: pd.read_csv("generated_surfaces.csv", skiprows = 2).iloc[1:, :].set_index("Ticker")
+gen_s = pd.read_excel(datapath, skiprows = 2).set_index("Ticker").iloc[:-1, :-9]
 forward_swap = pd.read_excel(filepath, skiprows = 2).set_index("Ticker")
     
 def all_prices(date):
@@ -103,7 +94,7 @@ def all_prices(date):
     
     df = d1.join(mat_n_ten1)
     df.columns = ["Forward", "Tenor", "Maturity"]
-    df = df.loc[~(df["Tenor"] == 30)]
+    df = df.loc[~(df["Maturity"] == 30)]
     
     df["Vol"] = d2.values
     
@@ -140,20 +131,29 @@ def arbitrage_matrix(date):
     
     return violations_combined
 
-def arbitrage_matrix_regular(date):
+def arbitrage_mat_n_ten(date):
     df = arbitrage_matrix(date)
     df_reset = df.reset_index()
 
     df_melted = df_reset.melt(id_vars=["Tenor"], var_name="Maturity", value_name="Violation")
+    df1 = df_melted.loc[df_melted["Violation"]][["Tenor", "Maturity"]]
 
-    return df_melted
+    return df1
+
+def arbitrage_loc():
+    lst = []
+    
+    for date in gen_s.index:
+        df = arbitrage_mat_n_ten(date)
+        lst.append(df)
+
+    return pd.concat(lst)
+
+def arbitrage_concentration():
+    return arbitrage_loc().groupby(["Tenor", "Maturity"]).size().reset_index(name="Count")
 
 def arbitrage(date):
-    df = grid_prices(date)
-    violations_down = (df.diff(axis=0) < 0)
-    violations_right = (df.diff(axis=1) < 0)
-
-    violations_combined = violations_down | violations_right
+    violations_combined = arbitrage_matrix(date)
     s1 = violations_combined.sum().sum()
     
     return s1/violations_combined.size
