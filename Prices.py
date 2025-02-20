@@ -51,9 +51,9 @@ class Bachelier_Model:
         return rate
 
     def price(self):
-        d = (self.F - self.K) / (self.sig * np.sqrt(self.T0))
         p = 0
         norm_dist = stats.norm()
+        d = (self.F - self.K) / (self.sig * np.sqrt(self.T0))
         
         r = self.df.loc[self.date].dropna()
 
