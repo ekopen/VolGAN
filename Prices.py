@@ -65,28 +65,39 @@ class Bachelier_Model:
         
         initial_guess = [np.mean(rate_values), -1, 1, 2]
         params, _ = curve_fit(self.nelson_siegel, time_points, rate_values, p0=initial_guess)
+        
+        
+        if self.Ts > 0.25:
+            for i in np.arange(self.T0 + 0.25, self.Ts + self.T0 + 0.25, 0.25):
+                r_interp = self.nelson_siegel(i, *params)
 
-        for i in np.arange(self.T0 + 0.25, self.Ts + self.T0 + 0.25, 0.25):
-            r_interp = self.nelson_siegel(i, *params)
+                term1 = (self.F - self.K) * norm_dist.cdf(d)
+                term2 = (self.sig * np.sqrt(self.T0)) * norm_dist.pdf(d)
 
-            term1 = (self.F - self.K) * norm_dist.cdf(d)
-            term2 = (self.sig * np.sqrt(self.T0)) * norm_dist.pdf(d)
+                Z = np.exp(-r_interp * i)
+                p += Z * (term1 + term2)
+        else:
+            for i in np.arange(self.T0 + self.Ts, self.Ts * 2 + self.T0, self.Ts):
+                r_interp = self.nelson_siegel(i, *params)
 
-            Z = np.exp(-r_interp * i)
-            p += Z * (term1 + term2)
+                term1 = (self.F - self.K) * norm_dist.cdf(d)
+                term2 = (self.sig * np.sqrt(self.T0)) * norm_dist.pdf(d)
+
+                Z = np.exp(-r_interp * i)
+                p += Z * (term1 + term2)
+        
 
         return p
 
 
 datapath = "swaption_atm_vol_full.xlsx"
+filepath = "forward_sofr_swap_full.xlsx"
+mat_n_ten1 = Inputs.maturity_tenor("forward_sofr_swap_full.xlsx").T
 
-mat_n_ten1 = Inputs.maturity_tenor("data/forward_sofr_swap_full_NEW.xlsx").T
-
-#gen_s = pd.read_csv("generated_surfaces.csv", skiprows = 2).iloc[1:, :].set_index("Ticker")
-
-forward_swap = pd.read_excel("data/forward_sofr_swap_full_NEW.xlsx", skiprows = 2).set_index("Ticker")
+gen_s = pd.read_csv("generated_surfaces.csv", skiprows = 2).iloc[1:, :].set_index("Ticker")
+forward_swap = pd.read_excel(filepath, skiprows = 2).set_index("Ticker")
     
-def all_prices(date, gen_s):
+def all_prices(date):
     d1 = pd.DataFrame(forward_swap.loc[date])
     d2 = pd.DataFrame(gen_s.loc[date])
     
@@ -96,7 +107,7 @@ def all_prices(date, gen_s):
     
     df["Vol"] = d2.values
     
-    Z = data_prep("data/usd_sofr_curve_full.xlsx")
+    Z = data_prep("usd_sofr_curve_full.xlsx")
     
     BM = Bachelier_Model(Z, date, 0, 0, 0, 0, 0)
     lst = []
@@ -115,22 +126,39 @@ def all_prices(date, gen_s):
     
     return df
 
-def grid_prices(date, gen_s):
-    df = all_prices(date, gen_s)
+def grid_prices(date):
+    df = all_prices(date)
     grid = df.pivot(index='Tenor', columns="Maturity", values='Price')
     return grid
 
-def arbitrage(date, gen_s):
-    df = grid_prices(date, gen_s)
+def arbitrage_matrix(date):
+    df = grid_prices(date)
     violations_down = (df.diff(axis=0) < 0)
     violations_right = (df.diff(axis=1) < 0)
 
     violations_combined = violations_down | violations_right
     
+    return violations_combined
+
+def arbitrage_matrix_regular(date):
+    df = arbitrage_matrix(date)
+    df_reset = df.reset_index()
+
+    df_melted = df_reset.melt(id_vars=["Tenor"], var_name="Maturity", value_name="Violation")
+
+    return df_melted
+
+def arbitrage(date):
+    df = grid_prices(date)
+    violations_down = (df.diff(axis=0) < 0)
+    violations_right = (df.diff(axis=1) < 0)
+
+    violations_combined = violations_down | violations_right
     s1 = violations_combined.sum().sum()
+    
     return s1/violations_combined.size
 
-def total_penalty(gen_s):
+def total_penalty():
     s1 = 0
     
     for i in gen_s.index:
