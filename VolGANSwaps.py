@@ -63,8 +63,8 @@ def SwapsData(datapath, surfacespath):
     # This means the COLUMN INDEX is a specific asset with some tenor and maturity 
     # The ROW INDEX is the date / time series of realised vol of that asset
 
-    # This is shape (456, 144)
-    # Same case for surfaces_transform, it is also shape (456, 144)
+    # This is shape (t, 144)
+    # Same case for surfaces_transform, it is also shape (t, 144)
     
     return surfaces_transform, returns, tenor, tau, tenors, taus, dates_dt
 
@@ -104,7 +104,7 @@ def DataPreprocesssing(datapath, surfacepath, vol_model='normal'):
 
     # COLUMN INDEX is a specific asset with some tenor and maturity 
     # ROW INDEX is the date / time series of realised vol of that asset
-    # This has shape (434, 144)
+    # This has shape (t-21, 144)
 
     #shift the time
     dates_t = dates_dt[22:]
@@ -165,7 +165,7 @@ def DataPreprocesssing(datapath, surfacepath, vol_model='normal'):
         sigma_out = np.concatenate((sigma_ret,sigma_iv_inc))
 
         condition = np.concatenate((np.expand_dims(return_tm1,axis=2),np.expand_dims(return_tm2,axis=2),np.expand_dims(realised_vol_tm1,axis=2),np.expand_dims(iv_t, axis=2)),axis=2)
-        # shape (434, 144, 4)
+        # shape (t-21, 144, 4)
         # each asset at each time has the condition vector
 
     elif vol_model == 'log':
@@ -187,7 +187,7 @@ def DataPreprocesssing(datapath, surfacepath, vol_model='normal'):
         sigma_out = np.concatenate((sigma_ret,sigma_liv_inc))
         
         condition = np.concatenate((np.expand_dims(return_tm1,axis=2),np.expand_dims(return_tm2,axis=2),np.expand_dims(realised_vol_tm1,axis=2),np.expand_dims(log_iv_t, axis=2)),axis=2)    
-        # shape (434, 144, 4)
+        # shape (t-21, 144, 4)
         # each asset at each time has the condition vector
 
     #true: what we are trying to predict, increments at time t
@@ -198,7 +198,7 @@ def DataPreprocesssing(datapath, surfacepath, vol_model='normal'):
     elif vol_model == 'log':
         true = np.concatenate((np.expand_dims(return_t_annualized,axis=2),np.expand_dims(log_iv_inc_t, axis=2)),axis=2)
     
-    # shape (434, 144, 2)
+    # shape (t-21, 144, 2)
     # each asset at each time has the predicted annualized return and (normal or log) implied vol increment
 
     return true, condition, m_in, sigma_in, m_out, sigma_out, dates_t,  tenor, tau, tenors, taus
@@ -456,7 +456,6 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
 
             disc_fake_pred = disc(fake_and_cond.detach()) 
             # last layer is sigmoid so fake values should all be between 0 and 1 
-            # #oh there are nan values for some reason maybe propogating from generator
             disc_real_pred = disc(real_and_cond)
 
             disc_fake_loss = criterion(disc_fake_pred, torch.zeros_like(disc_fake_pred))
@@ -539,7 +538,6 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
     beta = np.mean(np.array(BCE_grad) / np.array(t_smooth_grad))
     print("alpha :", alpha, "beta :", beta)
     return gen,gen_opt,disc,disc_opt,criterion, alpha, beta
-    # GRADIENT MATCHING TRAINING LOOP IS WORKING 
 
 def GradientMatchingPlot(gen,gen_opt,disc,disc_opt,criterion,
                         condition_train,true_train,
