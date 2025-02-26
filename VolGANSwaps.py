@@ -52,7 +52,7 @@ def SwapsData(datapath, surfacespath):
     # t \in {\frac{1}{12}, \frac{1}{4}, \frac{1}{2}, \frac{3}{4}, 1, 1.5, 2, 3, 4, 5, 7, 10, 15, 20, 25, 30}
     # we removed 30 year because of missing data
 
-    tenor = np.array([1/12, 1/4, 1/2, 3/4, 1, 1.5, 2, 3, 4, 5, 7, 10, 15, 20, 25, 30])
+    tenor = np.array([1/12, 1/4, 1/2, 3/4, 1, 1.5, 2, 3, 4, 5, 7, 10, 15, 20, 25])
     # \tau \in {1, 2, 3, 4, 5, 6, 7, 8, 9}
     tau = np.linspace(1, 9, 9) 
     
@@ -228,11 +228,11 @@ def DataTrainTest(datapath,surfacepath, tr, vol_model = 'normal', device = 'cpu'
     data_tt = torch.from_numpy(condition)
     condition_tensor = data_tt.to(torch.float).to(device)
 
-    true_train = true_tensor[0:int(tr * n), :, :]
-    true_test = true_tensor[int(tr * n):, :, :]
+    true_train = true_tensor[0:round(tr * n), :, :]
+    true_test = true_tensor[round(tr * n):, :, :]
 
-    condition_train = condition_tensor[0:int(tr * n), :, :]
-    condition_test = condition_tensor[int(tr * n):, :, :]
+    condition_train = condition_tensor[0:round(tr * n), :, :]
+    condition_test = condition_tensor[round(tr * n):, :, :]
 
     return true_train, true_test, condition_train,  condition_test,  m_in,sigma_in, m_out, sigma_out, dates_t,  tenor, tau, tenors, taus
 
@@ -315,7 +315,7 @@ class Discriminator(nn.Module):
         self.input_dim = in_dim
         self.hidden_dim = hidden_dim
         self.linear1 = nn.Linear(in_features=self.input_dim, out_features= self.hidden_dim)
-        self.Softplus = nn.Softplus()
+        self.activation = nn.Softplus()
         self.linear2 = nn.Linear(in_features = self.hidden_dim, out_features = 1)
         self.sigmoid = nn.Sigmoid()
 
@@ -332,7 +332,7 @@ class Discriminator(nn.Module):
         #uncomment to normalise
         # x = (x - self.mu_i) / self.std_i
         out = self.linear1(x)
-        out = self.Softplus(out)
+        out = self.activation(out)
         out = self.linear2(out)
         out = self.sigmoid(out)
 
@@ -363,8 +363,8 @@ def VolGAN(datapath, surfacepath, tr, vol_model = 'normal',
     true_val = False
     condition_val = False
     
-    gen_opt = torch.optim.RMSprop(gen.parameters(), lr=lrg)
-    disc_opt = torch.optim.RMSprop(disc.parameters(), lr=lrd)
+    gen_opt = torch.optim.AdamW(gen.parameters(), lr=lrg)
+    disc_opt = torch.optim.AdamW(disc.parameters(), lr=lrd)
     
     criterion = nn.BCELoss()
     criterion = criterion.to(device)
@@ -378,7 +378,7 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
                      condition_train,true_train,
                      tenor,tau,tenors,taus,
                      n_grad,lrg,lrd,batch_size,noise_dim,
-                     device, lk = 16, lt = 9, vol_model = 'normal'):
+                     device, lk = 15, lt = 9, vol_model = 'normal'):
     """
     perform gradient matching
     """
@@ -543,7 +543,7 @@ def GradientMatchingPlot(gen,gen_opt,disc,disc_opt,criterion,
                         condition_train,true_train,
                         tenor,tau,tenors,taus,
                         n_grad,lrg,lrd,batch_size,noise_dim,
-                        device, lk = 16, lt = 9, vol_model = 'normal'):
+                        device, lk = 15, lt = 9, vol_model = 'normal'):
     """
     perform gradient matching and plot
     """
@@ -681,7 +681,7 @@ def TrainLoopNoVal(alpha,beta,
                    tenor,tau, tenors,taus,
                    n_epochs,lrg,lrd,
                    batch_size,noise_dim,device, 
-                   lk = 16, lt = 9, vol_model = 'normal'):
+                   lk = 15, lt = 9, vol_model = 'normal'):
     """
     train loop for VolGAN
     """
