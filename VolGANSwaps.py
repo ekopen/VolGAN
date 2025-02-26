@@ -489,7 +489,9 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
             if vol_model == 'normal':
                 fake_surface = fake[:,:,1:] + surface_past
             elif vol_model == 'log':
-                fake_surface = torch.exp(fake[:,:,1:]+ surface_past)
+                x = fake[:,:,1:] + surface_past
+                x = torch.clamp(x, min=-10, max=10)
+                fake_surface = torch.exp(x)
 
             penalties_tenor = [None] * curr_batch_size
             penalties_t = [None] * curr_batch_size
@@ -623,7 +625,9 @@ def GradientMatchingPlot(gen,gen_opt,disc,disc_opt,criterion,
             if vol_model == 'normal':
                 fake_surface = fake[:,:,1:] + surface_past
             elif vol_model == 'log':
-                fake_surface = torch.exp(fake[:,:,1:] + surface_past)
+                x = fake[:,:,1:] + surface_past
+                x = torch.clamp(x, min=-10, max=10)
+                fake_surface = torch.exp(x)
 
             penalties_tenor = [torch.matmul(tenor_seq,(torch.matmul(matrix_tenor,fake_surface[iii])**2)) for iii in range(curr_batch_size)]
             penalties_t = [torch.matmul(tsq,(torch.matmul(matrix_t,fake_surface[iii])**2)) for iii in range(curr_batch_size)]
@@ -742,6 +746,7 @@ def TrainLoopNoVal(alpha,beta,
 
             disc_fake_pred = disc(fake_and_cond.detach())
             disc_real_pred = disc(real_and_cond)
+            
             disc_fake_loss = criterion(disc_fake_pred, torch.zeros_like(disc_fake_pred))
             disc_real_loss = criterion(disc_real_pred, torch.ones_like(disc_real_pred))
             disc_loss = (disc_fake_loss + disc_real_loss) / 2
@@ -763,12 +768,13 @@ def TrainLoopNoVal(alpha,beta,
             
             disc_fake_pred = disc(fake_and_cond)
             
-
             if vol_model == 'normal':
                 fake_surface = fake[:,:,1:] + surface_past
             elif vol_model == 'log':
-                fake_surface = torch.exp(fake[:,:,1:]+ surface_past)
-
+                x = fake[:,:,1:] + surface_past
+                x = torch.clamp(x, min=-10, max=10)
+                fake_surface = torch.exp(x)
+                
             penalties_m = [None] * curr_batch_size
             penalties_t = [None] * curr_batch_size
             for iii in range(curr_batch_size):
