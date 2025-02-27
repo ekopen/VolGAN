@@ -156,7 +156,78 @@ class Bachelier_Model:
         
         return Zs * fd * norm_dist.pdf(d)
     
+#Assuming n = 4 and that we are paying fixed
+class Forward_Swap:
+    def __init__(self, df, date, cpn, ytm, T0, Ts):
+        self.df = df
+        self.date = date
+        self.cpn = cpn
+        self.ytm = ytm
+        self.T0 = T0
+        self.Ts = Ts
+    
+    def nelson_siegel(self, maturity, theta0, theta1, theta2, lambda1):
+        rate = theta0 + (theta1 + theta2) * (1 - np.exp(-maturity/lambda1))/(maturity/lambda1) - theta2 * np.exp(-maturity/lambda1)
 
+        return rate
+    
+    def ns_params(self):
+        r = self.df.loc[self.date].dropna()
+
+        if isinstance(r, pd.DataFrame):
+            r = r.squeeze()
+
+        time_points = r.index.to_numpy(dtype=float)
+        rate_values = r.to_numpy(dtype=float)
+        
+        initial_guess = [np.mean(rate_values), -1, 1, 2]
+        params, _ = curve_fit(self.nelson_siegel, time_points, rate_values, p0=initial_guess)
+        
+        return params
+    
+    def forward_floating_bond(self):
+        params = self.ns_params()
+        r0 = self.nelson_siegel(self.T0, *params)
+        Z0 = 1/ (1 + r0/4) ** (self.T0 * 4)
+        
+        price = 0
+
+        for i in np.arange(1/4, self.T0 + self.Ts + 1/4, 1/4):
+            if i > self.T0:
+                z = 1 / (1 + self.ytm/4) ** (4 * (i))
+                val = self.ytm * 100 * z/4
+                price += val
+
+        price += (100) / ((1 + ytm/4) ** (4 * (self.T0 + self.Ts)))
+
+        return price/Z0
+    
+    def forward_bond(self):
+        params = self.ns_params()
+        r0 = self.nelson_siegel(self.T0, *params)
+        Z0 = 1/ (1 + r0/4) ** (self.T0 * 4)
+        
+        price = 0
+
+        for i in np.arange(1/4, self.T0 + self.Ts + 1/4, 1/4):
+            if i > self.T0:
+                z = 1 / (1 + self.ytm/4) ** (4 * (i))
+                val = self.cpn * 100 * z/4
+                price += val
+
+        price += (100) / ((1 + ytm/4) ** (4 * (self.T0 + self.Ts)))
+
+        return price/Z0
+    
+    def price(self):
+        fl = self.forward_floating_bond()
+        fi = self.forward_bond()
+        
+        return fl - fi
+                
+        
+        
+        
 
     
 
