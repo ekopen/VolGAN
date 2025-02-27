@@ -35,6 +35,37 @@ def data_prep(filename):
     usd_spot = usd_spot/100
     return usd_spot
 
+def maturity_tenor(filename):
+    mat_n_ten = pd.read_csv(filename, nrows=2)
+    new_header = mat_n_ten.iloc[1]
+    
+    df = pd.read_csv(filename, nrows=2, header=None)
+    df.columns = new_header
+    df.index = df["Ticker"]
+    df = df.iloc[:, 1:]
+    df = df.T
+    
+    df["Tenor"] = 0
+    df["Mat"] = 0
+
+    for i in range(len(df)):
+        xT,yT = (int(df["TERM (TENOR)"][i][:-1]), df["TERM (TENOR)"][i][-1:])
+        xM,yM = (int(df["MATURITY (EXPIRY)"][i][:-1]), df["MATURITY (EXPIRY)"][i][-1:])
+
+        if yT == "M":
+            df["Tenor"][i] = xT * 1/12
+        elif yT == "Y":
+            df["Tenor"][i] = xT
+
+        if yM == "M":
+            df["Mat"][i] = xM * 1/12
+        elif yM == "Y":
+            df["Mat"][i] = xM
+    
+    df = df[["Tenor", "Mat"]]
+    df = df.T
+    return df
+
 class Bachelier_Model:
     def __init__(self, r, date, T0, Ts, sig, K, F):
         self.df = r
@@ -85,6 +116,7 @@ class Bachelier_Model:
     
     def delta(self):
         d = (self.F - self.K) / (self.sig * np.sqrt(self.T0))
+        norm_dist = stats.norm()
         params = self.ns_params()
         Zs = 0
         
@@ -92,12 +124,13 @@ class Bachelier_Model:
             r_interp = self.nelson_siegel(i, *params)
 
             Z = np.exp(-r_interp * i)
-            Zs += Z * (term1 + term2)
+            Zs += Z
         
         return Zs * norm_dist.cdf(d)
     
     def gamma(self):
         d = (self.F - self.K) / (self.sig * np.sqrt(self.T0))
+        norm_dist = stats.norm()
         fd = 1/(self.sig * np.sqrt(self.T0))
         Zs = 0
         
@@ -105,12 +138,13 @@ class Bachelier_Model:
             r_interp = self.nelson_siegel(i, *params)
 
             Z = np.exp(-r_interp * i)
-            Zs += Z * (term1 + term2)
+            Zs += Z
         
         return Zs * fd * norm_dist.pdf(d)
     
     def vega(self):
         d = (self.F - self.K) / (self.sig * np.sqrt(self.T0))
+        norm_dist = stats.norm()
         fd = np.sqrt(self.T0)
         Zs = 0
         
@@ -118,27 +152,30 @@ class Bachelier_Model:
             r_interp = self.nelson_siegel(i, *params)
 
             Z = np.exp(-r_interp * i)
-            Zs += Z * (term1 + term2)
+            Zs += Z
         
         return Zs * fd * norm_dist.pdf(d)
     
 
-datapath = "swaption_atm_vol_full.xlsx"
-filepath = "forward_sofr_swap_full.xlsx"
-mat_n_ten1 = Inputs.maturity_tenor("forward_sofr_swap_full.xlsx").T
 
-#For Generated Surfaces: pd.read_csv("generated_surfaces.csv", skiprows = 2).iloc[1:, :].set_index("Ticker")
-gen_s = pd.read_csv("generated_surfaces.csv", skiprows = 2).iloc[1:, :].set_index("Ticker")
+    
+
+filename = "generated_surfaces_test_new.csv"   
+    
+gen_s = pd.read_csv(filename, skiprows = 2).set_index("Ticker")
 forward_swap = pd.read_excel(filepath, skiprows = 2).set_index("Ticker")
+
+mat_n_ten1 = maturity_tenor(filename).T
+
     
 def all_prices(date):
     d1 = pd.DataFrame(forward_swap.loc[date])
-    d2 = pd.DataFrame(gen_s.loc[date])
-    
-    df = d1.join(mat_n_ten1)
+    d2 = pd.DataFrame(gen_s.loc[date]).iloc[:-1]
+
+    df = d2.copy()
+    df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
     df.columns = ["Forward", "Tenor", "Maturity"]
-    df = df.loc[~(df["Maturity"] == 30)]
-    
+
     df["Vol"] = d2.values
     
     Z = data_prep("usd_sofr_curve_full.xlsx")
@@ -163,4 +200,43 @@ def all_prices(date):
 def grid_prices(date):
     df = all_prices(date)
     grid = df.pivot(index='Tenor', columns="Maturity", values='Price')
+    return grid
+
+#Delta using Bachelier
+filename = "swaption_atm_vol_full.xlsx"   
+    
+atm_vol = pd.read_excel(filename, skiprows = 2).set_index("Ticker")
+
+def all_deltas(date):
+    d1 = pd.DataFrame(forward_swap.loc[date])
+    d2 = pd.DataFrame(atm_vol.loc[date])
+
+    df = d2.copy()
+    df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
+    df.columns = ["Forward", "Tenor", "Maturity"]
+
+    df["Vol"] = d2.values
+    
+    Z = data_prep("usd_sofr_curve_full.xlsx")
+    
+    BM = Bachelier_Model(Z, date, 0, 0, 0, 0, 0)
+    lst = []
+    
+    for i in range(len(df)):
+        BM.sig = df["Vol"].iloc[i]/100
+        BM.F = df["Forward"].iloc[i]/100
+        BM.K = df["Forward"].iloc[i]/100
+        BM.T0 = df["Maturity"].iloc[i]
+        BM.Ts = df["Tenor"].iloc[i]
+        
+        lst.append(BM.delta())
+    
+    df["Delta"] = lst
+    df = df[["Tenor", "Maturity", "Delta"]]
+    
+    return df
+
+def grid_deltas(date):
+    df = all_deltas(date)
+    grid = df.pivot(index='Tenor', columns="Maturity", values='Delta')
     return grid
