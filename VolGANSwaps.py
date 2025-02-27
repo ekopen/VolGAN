@@ -52,7 +52,7 @@ def SwapsData(datapath, surfacespath):
     # t \in {\frac{1}{12}, \frac{1}{4}, \frac{1}{2}, \frac{3}{4}, 1, 1.5, 2, 3, 4, 5, 7, 10, 15, 20, 25, 30}
     # we removed 30 year because of missing data
 
-    tenor = np.array([1/12, 1/4, 1/2, 3/4, 1, 1.5, 2, 3, 4, 5, 7, 10, 15, 20, 25, 30])
+    tenor = np.array([1/12, 1/4, 1/2, 3/4, 1, 1.5, 2, 3, 4, 5, 7, 10, 15, 20, 25])
     # \tau \in {1, 2, 3, 4, 5, 6, 7, 8, 9}
     tau = np.linspace(1, 9, 9) 
     
@@ -63,8 +63,8 @@ def SwapsData(datapath, surfacespath):
     # This means the COLUMN INDEX is a specific asset with some tenor and maturity 
     # The ROW INDEX is the date / time series of realised vol of that asset
 
-    # This is shape (456, 144)
-    # Same case for surfaces_transform, it is also shape (456, 144)
+    # This is shape (t, 144)
+    # Same case for surfaces_transform, it is also shape (t, 144)
     
     return surfaces_transform, returns, tenor, tau, tenors, taus, dates_dt
 
@@ -104,7 +104,7 @@ def DataPreprocesssing(datapath, surfacepath, vol_model='normal'):
 
     # COLUMN INDEX is a specific asset with some tenor and maturity 
     # ROW INDEX is the date / time series of realised vol of that asset
-    # This has shape (434, 144)
+    # This has shape (t-21, 144)
 
     #shift the time
     dates_t = dates_dt[22:]
@@ -165,7 +165,7 @@ def DataPreprocesssing(datapath, surfacepath, vol_model='normal'):
         sigma_out = np.concatenate((sigma_ret,sigma_iv_inc))
 
         condition = np.concatenate((np.expand_dims(return_tm1,axis=2),np.expand_dims(return_tm2,axis=2),np.expand_dims(realised_vol_tm1,axis=2),np.expand_dims(iv_t, axis=2)),axis=2)
-        # shape (434, 144, 4)
+        # shape (t-21, 144, 4)
         # each asset at each time has the condition vector
 
     elif vol_model == 'log':
@@ -187,7 +187,7 @@ def DataPreprocesssing(datapath, surfacepath, vol_model='normal'):
         sigma_out = np.concatenate((sigma_ret,sigma_liv_inc))
         
         condition = np.concatenate((np.expand_dims(return_tm1,axis=2),np.expand_dims(return_tm2,axis=2),np.expand_dims(realised_vol_tm1,axis=2),np.expand_dims(log_iv_t, axis=2)),axis=2)    
-        # shape (434, 144, 4)
+        # shape (t-21, 144, 4)
         # each asset at each time has the condition vector
 
     #true: what we are trying to predict, increments at time t
@@ -198,7 +198,7 @@ def DataPreprocesssing(datapath, surfacepath, vol_model='normal'):
     elif vol_model == 'log':
         true = np.concatenate((np.expand_dims(return_t_annualized,axis=2),np.expand_dims(log_iv_inc_t, axis=2)),axis=2)
     
-    # shape (434, 144, 2)
+    # shape (t-21, 144, 2)
     # each asset at each time has the predicted annualized return and (normal or log) implied vol increment
 
     return true, condition, m_in, sigma_in, m_out, sigma_out, dates_t,  tenor, tau, tenors, taus
@@ -228,11 +228,11 @@ def DataTrainTest(datapath,surfacepath, tr, vol_model = 'normal', device = 'cpu'
     data_tt = torch.from_numpy(condition)
     condition_tensor = data_tt.to(torch.float).to(device)
 
-    true_train = true_tensor[0:int(tr * n), :, :]
-    true_test = true_tensor[int(tr * n):, :, :]
+    true_train = true_tensor[0:round(tr * n), :, :]
+    true_test = true_tensor[round(tr * n):, :, :]
 
-    condition_train = condition_tensor[0:int(tr * n), :, :]
-    condition_test = condition_tensor[int(tr * n):, :, :]
+    condition_train = condition_tensor[0:round(tr * n), :, :]
+    condition_test = condition_tensor[round(tr * n):, :, :]
 
     return true_train, true_test, condition_train,  condition_test,  m_in,sigma_in, m_out, sigma_out, dates_t,  tenor, tau, tenors, taus
 
@@ -315,7 +315,7 @@ class Discriminator(nn.Module):
         self.input_dim = in_dim
         self.hidden_dim = hidden_dim
         self.linear1 = nn.Linear(in_features=self.input_dim, out_features= self.hidden_dim)
-        self.Softplus = nn.Softplus()
+        self.activation = nn.Softplus()
         self.linear2 = nn.Linear(in_features = self.hidden_dim, out_features = 1)
         self.sigmoid = nn.Sigmoid()
 
@@ -332,7 +332,7 @@ class Discriminator(nn.Module):
         #uncomment to normalise
         # x = (x - self.mu_i) / self.std_i
         out = self.linear1(x)
-        out = self.Softplus(out)
+        out = self.activation(out)
         out = self.linear2(out)
         out = self.sigmoid(out)
 
@@ -363,8 +363,8 @@ def VolGAN(datapath, surfacepath, tr, vol_model = 'normal',
     true_val = False
     condition_val = False
     
-    gen_opt = torch.optim.RMSprop(gen.parameters(), lr=lrg)
-    disc_opt = torch.optim.RMSprop(disc.parameters(), lr=lrd)
+    gen_opt = torch.optim.AdamW(gen.parameters(), lr=lrg)
+    disc_opt = torch.optim.AdamW(disc.parameters(), lr=lrd)
     
     criterion = nn.BCELoss()
     criterion = criterion.to(device)
@@ -378,7 +378,7 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
                      condition_train,true_train,
                      tenor,tau,tenors,taus,
                      n_grad,lrg,lrd,batch_size,noise_dim,
-                     device, lk = 16, lt = 9, vol_model = 'normal'):
+                     device, lk = 15, lt = 9, vol_model = 'normal'):
     """
     perform gradient matching
     """
@@ -456,7 +456,6 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
 
             disc_fake_pred = disc(fake_and_cond.detach()) 
             # last layer is sigmoid so fake values should all be between 0 and 1 
-            # #oh there are nan values for some reason maybe propogating from generator
             disc_real_pred = disc(real_and_cond)
 
             disc_fake_loss = criterion(disc_fake_pred, torch.zeros_like(disc_fake_pred))
@@ -490,7 +489,9 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
             if vol_model == 'normal':
                 fake_surface = fake[:,:,1:] + surface_past
             elif vol_model == 'log':
-                fake_surface = torch.exp(fake[:,:,1:]+ surface_past)
+                x = fake[:,:,1:] + surface_past
+                x = torch.clamp(x, min=-10, max=10)
+                fake_surface = torch.exp(x)
 
             penalties_tenor = [None] * curr_batch_size
             penalties_t = [None] * curr_batch_size
@@ -539,13 +540,12 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
     beta = np.mean(np.array(BCE_grad) / np.array(t_smooth_grad))
     print("alpha :", alpha, "beta :", beta)
     return gen,gen_opt,disc,disc_opt,criterion, alpha, beta
-    # GRADIENT MATCHING TRAINING LOOP IS WORKING 
 
 def GradientMatchingPlot(gen,gen_opt,disc,disc_opt,criterion,
                         condition_train,true_train,
                         tenor,tau,tenors,taus,
                         n_grad,lrg,lrd,batch_size,noise_dim,
-                        device, lk = 16, lt = 9, vol_model = 'normal'):
+                        device, lk = 15, lt = 9, vol_model = 'normal'):
     """
     perform gradient matching and plot
     """
@@ -625,7 +625,9 @@ def GradientMatchingPlot(gen,gen_opt,disc,disc_opt,criterion,
             if vol_model == 'normal':
                 fake_surface = fake[:,:,1:] + surface_past
             elif vol_model == 'log':
-                fake_surface = torch.exp(fake[:,:,1:] + surface_past)
+                x = fake[:,:,1:] + surface_past
+                x = torch.clamp(x, min=-10, max=10)
+                fake_surface = torch.exp(x)
 
             penalties_tenor = [torch.matmul(tenor_seq,(torch.matmul(matrix_tenor,fake_surface[iii])**2)) for iii in range(curr_batch_size)]
             penalties_t = [torch.matmul(tsq,(torch.matmul(matrix_t,fake_surface[iii])**2)) for iii in range(curr_batch_size)]
@@ -683,7 +685,7 @@ def TrainLoopNoVal(alpha,beta,
                    tenor,tau, tenors,taus,
                    n_epochs,lrg,lrd,
                    batch_size,noise_dim,device, 
-                   lk = 16, lt = 9, vol_model = 'normal'):
+                   lk = 15, lt = 9, vol_model = 'normal'):
     """
     train loop for VolGAN
     """
@@ -744,6 +746,7 @@ def TrainLoopNoVal(alpha,beta,
 
             disc_fake_pred = disc(fake_and_cond.detach())
             disc_real_pred = disc(real_and_cond)
+            
             disc_fake_loss = criterion(disc_fake_pred, torch.zeros_like(disc_fake_pred))
             disc_real_loss = criterion(disc_real_pred, torch.ones_like(disc_real_pred))
             disc_loss = (disc_fake_loss + disc_real_loss) / 2
@@ -765,12 +768,13 @@ def TrainLoopNoVal(alpha,beta,
             
             disc_fake_pred = disc(fake_and_cond)
             
-
             if vol_model == 'normal':
                 fake_surface = fake[:,:,1:] + surface_past
             elif vol_model == 'log':
-                fake_surface = torch.exp(fake[:,1:]+ surface_past)
-
+                x = fake[:,:,1:] + surface_past
+                x = torch.clamp(x, min=-10, max=10)
+                fake_surface = torch.exp(x)
+                
             penalties_m = [None] * curr_batch_size
             penalties_t = [None] * curr_batch_size
             for iii in range(curr_batch_size):
