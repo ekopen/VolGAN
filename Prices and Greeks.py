@@ -273,7 +273,7 @@ def grid_prices(date):
     grid = df.pivot(index='Tenor', columns="Maturity", values='Price')
     return grid
 
-#Delta using Bachelier
+#Delta Hedging using Bachelier
 filename = "swaption_atm_vol_full.xlsx"   
     
 atm_vol = pd.read_excel(filename, skiprows = 2).set_index("Ticker")
