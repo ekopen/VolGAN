@@ -277,6 +277,8 @@ def grid_prices(date):
 filename = "swaption_atm_vol_full.xlsx"   
     
 atm_vol = pd.read_excel(filename, skiprows = 2).set_index("Ticker")
+forward_swap = pd.read_excel(filepath, skiprows = 2).set_index("Ticker")
+forward_swap.index = pd.to_datetime(forward_swap.index)
 
 def all_deltas(date):
     d1 = pd.DataFrame(forward_swap.loc[date])
@@ -306,7 +308,77 @@ def all_deltas(date):
     
     return df
 
-def grid_deltas(date):
-    df = all_deltas(date)
-    grid = df.pivot(index='Tenor', columns="Maturity", values='Delta')
-    return grid
+def realized_prices(date):
+    d1 = pd.DataFrame(forward_swap.loc[date])
+    d2 = pd.DataFrame(atm_vol.loc[date])
+
+    df = d2.copy()
+    df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
+    df.columns = ["Forward", "Tenor", "Maturity"]
+
+    df["Vol"] = d2.values
+    
+    Z = data_prep("usd_sofr_curve_full.xlsx")
+    
+    BM = Bachelier_Model(Z, date, 0, 0, 0, 0, 0)
+    lst = []
+    
+    for i in range(len(df)):
+        BM.sig = df["Vol"].iloc[i]/100
+        BM.F = df["Forward"].iloc[i]/100
+        BM.K = df["Forward"].iloc[i]/100
+        BM.T0 = df["Maturity"].iloc[i]
+        BM.Ts = df["Tenor"].iloc[i]
+        
+        lst.append(BM.price())
+    
+    df["Price"] = lst
+    
+    return df
+
+def underlying_PnL(date):
+    i = forward_swap.index.get_loc(date)
+
+    
+    d2 = pd.DataFrame(forward_swap.iloc[i, :])
+    d1 = pd.DataFrame(forward_swap.iloc[i + 1, :])
+    
+    df = d1.join(d2)/100
+    df.columns = ["CPN", "YTM"]
+    d3 = all_deltas(date).iloc[:-1]
+    d3.index = df.index
+    
+    df = d3[["Maturity", "Tenor"]].join(df)
+    Z = data_prep("usd_sofr_curve_full.xlsx")
+    
+    FS = Forward_Swap(Z, date, 0, 0, 0, 0)
+    ps = []
+    
+    for i in range(len(df)):
+        FS.cpn = df["CPN"].iloc[i]
+        FS.ytm = df["YTM"].iloc[i]
+        FS.T0 = df["Maturity"].iloc[i]
+        FS.Ts = df["Maturity"].iloc[i]
+        
+        ps.append(FS.price())
+    
+    df["Swap PnL"] = ps
+    
+    return df[["Maturity", "Tenor", "Swap PnL"]]
+
+def swaption_change(date):
+    i = forward_swap.index.get_loc(date)
+    
+    d1 = forward_swap.index.values[i]
+    d2 = forward_swap.index.values[i+1]
+    
+    p1 = realized_prices(d1)[["Tenor", "Maturity", "Price"]]
+    p1 = p1.rename(columns = {"Price": d1})
+    p2 = realized_prices(d2)[["Tenor", "Maturity", "Price"]]
+    p2 = p2.rename(columns = {"Price": d2})
+    
+    df = p1.merge(p2, on=["Tenor", "Maturity"], how="inner")
+    df["Swaption PnL"] = df[d1] - df[d2]
+    
+    return df[["Tenor", "Maturity", "Swaption PnL"]]
+    
