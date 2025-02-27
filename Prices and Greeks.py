@@ -194,11 +194,11 @@ class Forward_Swap:
 
         for i in np.arange(1/4, self.T0 + self.Ts + 1/4, 1/4):
             if i > self.T0:
-                z = 1 / (1 + self.ytm/4) ** (4 * (i))
-                val = self.ytm * 100 * z/4
+                z = 1 / (1 + self.cpn/4) ** (4 * (i))
+                val = self.cpn * 100 * z/4
                 price += val
 
-        price += (100) / ((1 + ytm/4) ** (4 * (self.T0 + self.Ts)))
+        price += (100) / ((1 + self.cpn/4) ** (4 * (self.T0 + self.Ts)))
 
         return price/Z0
     
@@ -215,7 +215,7 @@ class Forward_Swap:
                 val = self.cpn * 100 * z/4
                 price += val
 
-        price += (100) / ((1 + ytm/4) ** (4 * (self.T0 + self.Ts)))
+        price += (100) / ((1 + self.ytm/4) ** (4 * (self.T0 + self.Ts)))
 
         return price/Z0
     
@@ -303,7 +303,6 @@ def all_deltas(date):
         lst.append(BM.delta())
     
     df["Delta"] = lst
-    df = df[["Tenor", "Maturity", "Delta"]]
     
     return df
 
