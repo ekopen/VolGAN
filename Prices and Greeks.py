@@ -126,7 +126,7 @@ class Bachelier_Model:
             Z = np.exp(-r_interp * i)
             Zs += Z
         
-        return Zs * norm_dist.cdf(d)
+        return norm_dist.cdf(d) #* Zs
     
     def gamma(self):
         d = (self.F - self.K) / (self.sig * np.sqrt(self.T0))
@@ -140,7 +140,7 @@ class Bachelier_Model:
             Z = np.exp(-r_interp * i)
             Zs += Z
         
-        return Zs * fd * norm_dist.pdf(d)
+        return fd * norm_dist.pdf(d) #* Zs
     
     def vega(self):
         d = (self.F - self.K) / (self.sig * np.sqrt(self.T0))
@@ -154,7 +154,7 @@ class Bachelier_Model:
             Z = np.exp(-r_interp * i)
             Zs += Z
         
-        return Zs * fd * norm_dist.pdf(d)
+        return fd * norm_dist.pdf(d) #* Zs
     
 #Assuming n = 4 and that we are paying fixed
 class Forward_Swap:
