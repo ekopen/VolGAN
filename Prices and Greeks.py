@@ -381,4 +381,16 @@ def swaption_change(date):
     df["Swaption PnL"] = df[d1] - df[d2]
     
     return df[["Tenor", "Maturity", "Swaption PnL"]]
+
+def hedge_strat(date):
+    d = all_deltas(date)[["Tenor", "Maturity", "Delta"]]
+    sc = swaption_change(date)
+    up = underlying_PnL(date)
     
+    df = d.merge(sc, on=["Tenor", "Maturity"], how="inner")
+    df2 = df.merge(up, on=["Tenor", "Maturity"], how="inner")
+    
+    df2["Swap Pos"] = df2["Delta"] * df2["Swap PnL"]
+    df2["Total Pos"] = df2["Swaption PnL"] - df2["Swap Pos"]
+    
+    return df2[["Tenor", "Maturity", "Total Pos"]]
