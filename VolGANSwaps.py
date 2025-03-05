@@ -84,7 +84,7 @@ def SwapsData(datapath, surfacespath):
 
     return surfaces_transform, log_return, tenor, tau, tenors, taus, dates_dt
 
-def DataPreprocesssing(datapath, surfacepath, vol_model='normal'):
+def DataPreprocesssing(datapath, surfacepath, data_model='normal'):
     """
     function for preparing the data for VolGAN
     later to be split into train, val, test
@@ -121,13 +121,13 @@ def DataPreprocesssing(datapath, surfacepath, vol_model='normal'):
 
     # Note about volatility: if we are using normal model, then we can use the implied vol directly
     # If we are using log-normal model, then we need to convert the implied vol to log implied vol
-    if vol_model == 'normal':
+    if data_model == 'normal':
         #implied vol at t
         iv_t = surfaces_transform[22:]
         #implied vol at t-1
         iv_tm1 = surfaces_transform[21:-1]
         iv_inc_t = iv_t - iv_tm1
-    elif vol_model == 'log':
+    elif data_model == 'log':
         log_iv_t = np.log(surfaces_transform[22:])
         log_iv_tm1 = np.log(surfaces_transform[21:-1])
         #we want to simulate the increment at time t (t - t-1)
@@ -148,7 +148,7 @@ def DataPreprocesssing(datapath, surfacepath, vol_model='normal'):
     sigma_rv = np.std(realised_vol_tm1[0:100], axis=0)
     # shape (144,)
 
-    if vol_model == 'normal':
+    if data_model == 'normal':
 
         # normal implied vol
         m_iv = np.mean(iv_t[0:100], axis=0)
@@ -168,7 +168,7 @@ def DataPreprocesssing(datapath, surfacepath, vol_model='normal'):
         # shape (t-21, 144, 4)
         # each asset at each time has the condition vector
 
-    elif vol_model == 'log':
+    elif data_model == 'log':
 
         # log implied vol 
         m_liv = np.mean(log_iv_t[0:100], axis=0)
@@ -193,9 +193,9 @@ def DataPreprocesssing(datapath, surfacepath, vol_model='normal'):
     #true: what we are trying to predict, increments at time t
     return_t_annualized = 252 * return_t
 
-    if vol_model == 'normal':
+    if data_model == 'normal':
         true = np.concatenate((np.expand_dims(return_t_annualized,axis=2),np.expand_dims(iv_inc_t, axis=2)),axis=2)
-    elif vol_model == 'log':
+    elif data_model == 'log':
         true = np.concatenate((np.expand_dims(return_t_annualized,axis=2),np.expand_dims(log_iv_inc_t, axis=2)),axis=2)
     
     # shape (t-21, 144, 2)
@@ -203,14 +203,14 @@ def DataPreprocesssing(datapath, surfacepath, vol_model='normal'):
 
     return true, condition, m_in, sigma_in, m_out, sigma_out, dates_t,  tenor, tau, tenors, taus
 
-def DataTrainTest(datapath,surfacepath, tr, vol_model = 'normal', device = 'cpu'):
+def DataTrainTest(datapath,surfacepath, tr, data_model = 'normal', device = 'cpu'):
     """
     function to split the data into train, test
     tr are the proportions to use for testing
     tr is specifically the percentage of data to use for training
     """
 
-    true, condition, m_in,sigma_in, m_out, sigma_out, dates_t,  tenor, tau, tenors, taus = DataPreprocesssing(datapath, surfacepath, vol_model=vol_model)
+    true, condition, m_in,sigma_in, m_out, sigma_out, dates_t,  tenor, tau, tenors, taus = DataPreprocesssing(datapath, surfacepath, data_model=data_model)
 
     data_tt = torch.from_numpy(m_in)
     m_in = data_tt.to(torch.float).to(device)
@@ -342,13 +342,13 @@ class Discriminator(nn.Module):
 ##### RUNNING THE MODEL #####
 ##############################
 
-def VolGAN(datapath, surfacepath, tr, vol_model = 'normal',
+def VolGAN(datapath, surfacepath, tr, data_model = 'normal',
            noise_dim = 16, hidden_dim = 8, 
            n_epochs = 1000,n_grad = 100, 
            lrg = 0.0001, lrd = 0.0001, 
            batch_size = 100, device = 'cpu'):
    
-    true_train, true_test, condition_train, condition_test,  m_in,sigma_in, m_out, sigma_out, dates_t,  tenor, tau, tenors, taus = DataTrainTest(datapath,surfacepath, tr, vol_model, device)
+    true_train, true_test, condition_train, condition_test,  m_in,sigma_in, m_out, sigma_out, dates_t,  tenor, tau, tenors, taus = DataTrainTest(datapath,surfacepath, tr, data_model, device)
     gen = Generator(noise_dim=noise_dim,cond_dim=condition_train.shape[2], hidden_dim=hidden_dim,output_dim=true_train.shape[2],mean_in = m_in, std_in = sigma_in, mean_out = m_out, std_out = sigma_out)
     gen.to(device)
     
@@ -363,14 +363,14 @@ def VolGAN(datapath, surfacepath, tr, vol_model = 'normal',
     true_val = False
     condition_val = False
     
-    gen_opt = torch.optim.AdamW(gen.parameters(), lr=lrg)
-    disc_opt = torch.optim.AdamW(disc.parameters(), lr=lrd)
+    gen_opt = torch.optim.RMSprop(gen.parameters(), lr=lrg)
+    disc_opt = torch.optim.RMSprop(disc.parameters(), lr=lrd)
     
     criterion = nn.BCELoss()
     criterion = criterion.to(device)
     
-    gen,gen_opt,disc,disc_opt,criterion, alpha, beta = GradientMatching(gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,tenor,tau,tenors,taus,n_grad,lrg,lrd,batch_size,noise_dim,device, vol_model=vol_model)
-    gen,gen_opt,disc,disc_opt,criterion = TrainLoopNoVal(alpha,beta,gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,tenor,tau,tenors,taus,n_epochs,lrg,lrd,batch_size,noise_dim,device, vol_model=vol_model)
+    gen,gen_opt,disc,disc_opt,criterion, alpha, beta = GradientMatching(gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,tenor,tau,tenors,taus,n_grad,lrg,lrd,batch_size,noise_dim,device, data_model=data_model)
+    gen,gen_opt,disc,disc_opt,criterion = TrainLoopNoVal(alpha,beta,gen,gen_opt,disc,disc_opt,criterion,condition_train,true_train,tenor,tau,tenors,taus,n_epochs,lrg,lrd,batch_size,noise_dim,device, data_model=data_model)
     
     return gen, gen_opt, disc, disc_opt, true_train, true_val, true_test, condition_train, condition_val, condition_test, dates_t,  tenor, tau, tenors, taus
 
@@ -378,7 +378,7 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
                      condition_train,true_train,
                      tenor,tau,tenors,taus,
                      n_grad,lrg,lrd,batch_size,noise_dim,
-                     device, lk = 15, lt = 9, vol_model = 'normal'):
+                     device, lk = 15, lt = 9, data_model = 'normal'):
     """
     perform gradient matching
     """
@@ -486,9 +486,9 @@ def GradientMatching(gen,gen_opt,disc,disc_opt,criterion,
             fake_and_cond = torch.cat((condition,fake),dim=-1) 
             disc_fake_pred = disc(fake_and_cond)
             
-            if vol_model == 'normal':
+            if data_model == 'normal':
                 fake_surface = fake[:,:,1:] + surface_past
-            elif vol_model == 'log':
+            elif data_model == 'log':
                 x = fake[:,:,1:] + surface_past
                 x = torch.clamp(x, min=-10, max=10)
                 fake_surface = torch.exp(x)
@@ -545,7 +545,7 @@ def GradientMatchingPlot(gen,gen_opt,disc,disc_opt,criterion,
                         condition_train,true_train,
                         tenor,tau,tenors,taus,
                         n_grad,lrg,lrd,batch_size,noise_dim,
-                        device, lk = 15, lt = 9, vol_model = 'normal'):
+                        device, lk = 15, lt = 9, data_model = 'normal'):
     """
     perform gradient matching and plot
     """
@@ -622,9 +622,9 @@ def GradientMatchingPlot(gen,gen_opt,disc,disc_opt,criterion,
             fake_and_cond = torch.cat((condition,fake),dim=-1)
             disc_fake_pred = disc(fake_and_cond)
 
-            if vol_model == 'normal':
+            if data_model == 'normal':
                 fake_surface = fake[:,:,1:] + surface_past
-            elif vol_model == 'log':
+            elif data_model == 'log':
                 x = fake[:,:,1:] + surface_past
                 x = torch.clamp(x, min=-10, max=10)
                 fake_surface = torch.exp(x)
@@ -685,7 +685,7 @@ def TrainLoopNoVal(alpha,beta,
                    tenor,tau, tenors,taus,
                    n_epochs,lrg,lrd,
                    batch_size,noise_dim,device, 
-                   lk = 15, lt = 9, vol_model = 'normal'):
+                   lk = 15, lt = 9, data_model = 'normal'):
     """
     train loop for VolGAN
     """
@@ -768,9 +768,9 @@ def TrainLoopNoVal(alpha,beta,
             
             disc_fake_pred = disc(fake_and_cond)
             
-            if vol_model == 'normal':
+            if data_model == 'normal':
                 fake_surface = fake[:,:,1:] + surface_past
-            elif vol_model == 'log':
+            elif data_model == 'log':
                 x = fake[:,:,1:] + surface_past
                 x = torch.clamp(x, min=-10, max=10)
                 fake_surface = torch.exp(x)

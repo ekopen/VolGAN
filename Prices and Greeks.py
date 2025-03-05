@@ -235,13 +235,15 @@ filename = "generated_surfaces_test_new.csv"
     
 gen_s = pd.read_csv(filename, skiprows = 2).set_index("Ticker")
 forward_swap = pd.read_excel(filepath, skiprows = 2).set_index("Ticker")
+returns = pd.read_excel("generated_returns.xlsx", skiprows = 2).set_index("Ticker").iloc[1:, :]/10000
 
 mat_n_ten1 = maturity_tenor(filename).T
 
     
-def all_prices(date):
+def new_prices(date):
     d1 = pd.DataFrame(forward_swap.loc[date])
     d2 = pd.DataFrame(gen_s.loc[date]).iloc[:-1]
+    date1 = pd.to_datetime(date)
 
     df = d2.copy()
     df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
@@ -263,17 +265,55 @@ def all_prices(date):
         
         lst.append(BM.price())
     
+    df["New Price"] = lst
+    df = df[["Tenor", "Maturity", "New Price"]]
+    
+    df2 = realized_prices(date)
+    mdf = df2.join(df[["New Price"]]).dropna()
+    mdf["Pred PnL"] = mdf["New Price"] - mdf["Price"]
+    
+    return mdf[["Tenor", "Maturity", "Pred PnL"]]
+
+def all_prices(date):
+    r = pd.DataFrame(returns.loc[pd.to_datetime(date)]).iloc[:-1]
+    d1 = pd.DataFrame(forward_swap.loc[date])
+    d2 = pd.DataFrame(gen_s.loc[date]).iloc[:-1]
+
+    df = d2.copy()
+    df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
+    df.columns = ["Forward", "Tenor", "Maturity"]
+ 
+
+    df["Vol"] = d2.values
+    df = df.join(r).dropna()
+    
+    Z = data_prep("usd_sofr_curve_full.xlsx")
+    d1 = pd.to_datetime(date)
+    
+    BM = Bachelier_Model(Z, date, 0, 0, 0, 0, 0)
+    lst = []
+    
+    for i in range(len(df)):
+        BM.sig = df["Vol"].iloc[i]/100
+        BM.F = df["Forward"].iloc[i]/100 + df[d1].iloc[i]
+        BM.K = df["Forward"].iloc[i]/100
+        BM.T0 = df["Maturity"].iloc[i]
+        BM.Ts = df["Tenor"].iloc[i]
+        
+        lst.append(BM.price())
+    
     df["Price"] = lst
     df = df[["Tenor", "Maturity", "Price"]]
     
     return df
+
 
 def grid_prices(date):
     df = all_prices(date)
     grid = df.pivot(index='Tenor', columns="Maturity", values='Price')
     return grid
 
-#Delta Hedging using Bachelier
+#Delta using Bachelier
 filename = "swaption_atm_vol_full.xlsx"   
     
 atm_vol = pd.read_excel(filename, skiprows = 2).set_index("Ticker")
@@ -394,3 +434,12 @@ def hedge_strat(date):
     df2["Total Pos"] = df2["Swaption PnL"] - df2["Swap Pos"]
     
     return df2[["Tenor", "Maturity", "Total Pos"]]
+
+def pred_strat(date):
+    sc = swaption_change(date)
+    pc = new_prices(date)
+    
+    df = pc.merge(sc, on=["Tenor", "Maturity"], how="inner")
+    df["Total Pos"] = df["Swaption PnL"] - df["Pred PnL"]
+    
+    return df[["Tenor", "Maturity", "Total Pos"]]
