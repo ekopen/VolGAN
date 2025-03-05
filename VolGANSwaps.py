@@ -1,3 +1,6 @@
+# Imports directly from VolGAN paper
+# May not all be used in the final implementation of the model
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -11,10 +14,9 @@ import scipy as sp
 from scipy.stats import norm
 import pandas_datareader as pd_data
 from pandas_datareader import data as pdr
-import yfinance as yf
 from datetime import datetime
 from statsmodels.tsa.stattools import acf, pacf
-from scipy.interpolate import interp1d
+from scipy.interpolate import inter
 from numpy import arange, array, exp
 import Inputs
 
