@@ -9,7 +9,7 @@ VolGAN is a deep learning framework for modeling and predicting financial market
 - Implements a GAN-based approach for financial volatility modeling
 - Supports training on historical financial data
 - Provides volatility forecasts and synthetic volatility path generation
-- Extensible architecture for experimentation with different network structures
+- Extensible architecture for experimentation with varying hyperparameter selection
 
 ## Installation
 
@@ -25,8 +25,12 @@ pip install -r requirements.txt
 
 To see relevant code for data preprocessing, model training, model usage and model evaluation, please refer to the `main.ipynb` file in the repository.
 
-The model itself and relevant functions can be found in any of the relevant `.py` files:
-- `VolGANSwaps.py` abstracts most of the processing, training and usage functions
+The model itself and relevant functions can be found in `VolGANSwaps.py` which abstracts most of the processing, training and usage functions.
+
+Other relevant files include the following:
 - `Inputs.py` provides functions to interact with the originally provided dataset
-- `Prices and Greeks.py` provides functions to price the instrument given volatilities
-- To be continued. 
+- `Prices and Greeks.py` provides functions to price the instrument given implied volatilities
+  - `treasury_cmds.py` are helper functions used in pricing
+- `reweighting.py` and `reweighting_main.ipynb` provide implementation of the scenario reweighting process provided in the paper
+- `sofr_libor_conversion.ipynb` provides methodology for constructing synthetic SOFR data from pre-LIBOR-to-SOFR transtion
+- `Evaluation.py` provides additional visualization functions and methods to compare generated surfaces and true surfaces
