@@ -158,11 +158,13 @@ returns = pd.read_excel("generated_returns.xlsx", skiprows=2).set_index("Ticker"
 mat_n_ten1 = maturity_tenor("generated_surfaces_test_new.csv").T
 
 def new_prices(date, base_date=None):
+    r = pd.DataFrame(returns.loc[pd.to_datetime(date)]).iloc[:-1]
     d2 = pd.DataFrame(gen_s.loc[date]).iloc[:-1]
     df = d2.copy()
     df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
     df.columns = ["Forward", "Maturity", "Tenor"]
     df["Vol"] = d2.values
+    df = df.join(r).dropna()
 
     Z = data_prep("usd_sofr_curve_full.xlsx")
     
@@ -183,8 +185,8 @@ def new_prices(date, base_date=None):
             Ts=row["Tenor"],
             sig=row["Vol"] / 100,
             K=row["Strike"] / 100, 
-            F=row["Forward"] / 100 
-        )
+            F=row["Forward"] / 100 + row[pd.to_datetime(date)])
+        
         return bm.price()
     
     df["New Price"] = df.apply(calc_price, axis=1)
@@ -196,14 +198,12 @@ def new_prices(date, base_date=None):
     return mdf[["Tenor", "Maturity", "Pred PnL"]]
 
 def all_prices(date):
-    r = pd.DataFrame(returns.loc[pd.to_datetime(date)]).iloc[:-1]
     d2 = pd.DataFrame(gen_s.loc[date]).iloc[:-1]
     df = d2.copy()
     df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
     display(df)
     df.columns = ["Forward", "Maturity", "Tenor"]
     df["Vol"] = d2.values
-    df = df.join(r).dropna()
     
     Z = data_prep("usd_sofr_curve_full.xlsx")
     
@@ -213,7 +213,7 @@ def all_prices(date):
                              Ts=row["Tenor"],
                              sig=row["Vol"]/100,
                              K=row["Forward"]/100,
-                             F=row["Forward"]/100 + row[pd.to_datetime(date)])
+                             F=row["Forward"]/100)
         return bm.price()
     
     df["Price"] = df.apply(calc_price, axis=1)
