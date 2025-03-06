@@ -16,7 +16,7 @@ import pandas_datareader as pd_data
 from pandas_datareader import data as pdr
 from datetime import datetime
 from statsmodels.tsa.stattools import acf, pacf
-from scipy.interpolate import inter
+from scipy.interpolate import interp
 from numpy import arange, array, exp
 import Inputs
 
