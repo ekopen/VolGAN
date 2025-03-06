@@ -155,13 +155,13 @@ filepath = "forward_sofr_swap_full.xlsx"
 gen_s = pd.read_csv(filename, skiprows=2).set_index("Ticker")
 forward_swap = pd.read_excel(filepath, skiprows=2).set_index("Ticker")
 returns = pd.read_excel("generated_returns.xlsx", skiprows=2).set_index("Ticker").iloc[1:, :]/100
-mat_n_ten1 = maturity_tenor(filename).T
+mat_n_ten1 = maturity_tenor("generated_surfaces_test_new.csv").T
 
 def new_prices(date, base_date=None):
     d2 = pd.DataFrame(gen_s.loc[date]).iloc[:-1]
     df = d2.copy()
     df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
-    df.columns = ["Forward", "Tenor", "Maturity"]
+    df.columns = ["Forward", "Maturity", "Tenor"]
     df["Vol"] = d2.values
 
     Z = data_prep("usd_sofr_curve_full.xlsx")
@@ -170,7 +170,7 @@ def new_prices(date, base_date=None):
         base_d2 = pd.DataFrame(gen_s.loc[base_date]).iloc[:-1]
         base_df = base_d2.copy()
         base_df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
-        base_df.columns = ["Strike", "Tenor", "Maturity"]
+        base_df.columns = ["Strike", "Maturity", "Tenor"]
         df["Strike"] = base_df["Strike"].values
     else:
         df["Strike"] = df["Forward"]
@@ -200,7 +200,8 @@ def all_prices(date):
     d2 = pd.DataFrame(gen_s.loc[date]).iloc[:-1]
     df = d2.copy()
     df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
-    df.columns = ["Forward", "Tenor", "Maturity"]
+    display(df)
+    df.columns = ["Forward", "Maturity", "Tenor"]
     df["Vol"] = d2.values
     df = df.join(r).dropna()
     
@@ -227,7 +228,7 @@ def all_deltas(date):
     d2 = pd.DataFrame(atm_vol.loc[date])
     df = d2.copy()
     df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
-    df.columns = ["Forward", "Tenor", "Maturity"]
+    df.columns = ["Forward", "Maturity", "Tenor"]
     df["Vol"] = d2.values
     Z = data_prep("usd_sofr_curve_full.xlsx")
     
@@ -270,7 +271,7 @@ def realized_prices(date, base_date=None):
     d2 = pd.DataFrame(atm_vol.loc[date])
     df = d2.copy()
     df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
-    df.columns = ["Forward", "Tenor", "Maturity"]
+    df.columns = ["Forward", "Maturity", "Tenor"]
     df["Vol"] = d2.values
 
     if base_date is not None:
