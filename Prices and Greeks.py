@@ -157,28 +157,40 @@ forward_swap = pd.read_excel(filepath, skiprows=2).set_index("Ticker")
 returns = pd.read_excel("generated_returns.xlsx", skiprows=2).set_index("Ticker").iloc[1:, :]/100
 mat_n_ten1 = maturity_tenor(filename).T
 
-def new_prices(date):
+def new_prices(date, base_date=None):
     d2 = pd.DataFrame(gen_s.loc[date]).iloc[:-1]
-    date1 = pd.to_datetime(date)
     df = d2.copy()
     df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
     df.columns = ["Forward", "Tenor", "Maturity"]
     df["Vol"] = d2.values
-    
+
     Z = data_prep("usd_sofr_curve_full.xlsx")
     
+    if base_date is not None:
+        base_d2 = pd.DataFrame(gen_s.loc[base_date]).iloc[:-1]
+        base_df = base_d2.copy()
+        base_df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
+        base_df.columns = ["Strike", "Tenor", "Maturity"]
+        df["Strike"] = base_df["Strike"].values
+    else:
+        df["Strike"] = df["Forward"]
+    
     def calc_price(row):
-        bm = Bachelier_Model(Z, date,
-                             T0=row["Maturity"],
-                             Ts=row["Tenor"],
-                             sig=row["Vol"]/100,
-                             K=row["Forward"]/100,
-                             F=row["Forward"]/100)
+        bm = Bachelier_Model(
+            r=Z,
+            date=date,
+            T0=row["Maturity"],
+            Ts=row["Tenor"],
+            sig=row["Vol"] / 100,
+            K=row["Strike"] / 100, 
+            F=row["Forward"] / 100 
+        )
         return bm.price()
     
     df["New Price"] = df.apply(calc_price, axis=1)
-    df = df[["Tenor", "Maturity", "New Price"]]
-    df2 = realized_prices(date)
+    df = df[["Tenor", "Maturity", "New Price", "Strike", "Forward", "Vol"]]
+    
+    df2 = realized_prices(date, base_date=base_date)
     mdf = df2.join(df[["New Price"]]).dropna()
     mdf["Pred PnL"] = mdf["New Price"] - mdf["Price"]
     return mdf[["Tenor", "Maturity", "Pred PnL"]]
@@ -254,36 +266,51 @@ def underlying_PnL(date):
     df["Swap PnL"] = df.apply(calc_swap, axis=1)
     return df[["Maturity", "Tenor", "Swap PnL"]]
 
-def realized_prices(date):
+def realized_prices(date, base_date=None):
     d2 = pd.DataFrame(atm_vol.loc[date])
     df = d2.copy()
     df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
     df.columns = ["Forward", "Tenor", "Maturity"]
     df["Vol"] = d2.values
+
+    if base_date is not None:
+        base_df = pd.DataFrame(atm_vol.loc[base_date])
+        df["Strike"] = base_df.values
+    else:
+        df["Strike"] = df["Forward"]
+
     Z = data_prep("usd_sofr_curve_full.xlsx")
     
     def calc_price(row):
-        bm = Bachelier_Model(Z, date,
-                             T0=row["Maturity"],
-                             Ts=row["Tenor"],
-                             sig=row["Vol"]/100,
-                             K=row["Forward"]/100,
-                             F=row["Forward"]/100)
+        bm = Bachelier_Model(
+            r=Z,
+            date=date,
+            T0=row["Maturity"],
+            Ts=row["Tenor"],
+            sig=row["Vol"] / 100,
+            K=row["Strike"] / 100,
+            F=row["Forward"] / 100
+        )
         return bm.price()
     
     df["Price"] = df.apply(calc_price, axis=1)
-    return df
+    return df[["Tenor", "Maturity", "Forward", "Vol", "Strike", "Price"]]
+
 
 def swaption_change(date):
     i = forward_swap.index.get_loc(date)
     d1 = forward_swap.index.values[i]
     d2 = forward_swap.index.values[i+1]
-    
-    p1 = realized_prices(d1)[["Tenor", "Maturity", "Price"]].rename(columns={"Price": d1})
-    p2 = realized_prices(d2)[["Tenor", "Maturity", "Price"]].rename(columns={"Price": d2})
+
+    p1 = realized_prices(d1, base_date=None)
+    p1 = p1.rename(columns={"Price": str(d1)})
+
+    p2 = realized_prices(d2, base_date=d1)
+    p2 = p2.rename(columns={"Price": str(d2)})
+
     df = p1.merge(p2, on=["Tenor", "Maturity"], how="inner")
-    df["Swaption PnL"] = df[d1] - df[d2]
-    return df[["Tenor", "Maturity", "Swaption PnL"]]
+    df["Swaption PnL"] = df[str(d1)] - df[str(d2)]
+    return df[["Tenor", "Maturity", str(d1), str(d2), "Swaption PnL"]]
 
 def hedge_strat(date):
     d = all_deltas(date)[["Tenor", "Maturity", "Delta"]]
