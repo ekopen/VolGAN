@@ -152,8 +152,10 @@ class Forward_Swap:
 
 filename = "generated_surfaces_test_new.csv"
 filepath = "forward_sofr_swap_full.xlsx"
+filepath2 = "swaption_atm_vol_full.xlsx"
 gen_s = pd.read_csv(filename, skiprows=2).set_index("Ticker")
 forward_swap = pd.read_excel(filepath, skiprows=2).set_index("Ticker")
+atm_vol = pd.read_excel(filepath2, skiprows=2).set_index("Ticker")
 returns = pd.read_excel("generated_returns.xlsx", skiprows=2).set_index("Ticker").iloc[1:, :]/100
 mat_n_ten1 = maturity_tenor("generated_surfaces_test_new.csv").T
 
