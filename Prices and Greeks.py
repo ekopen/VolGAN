@@ -197,7 +197,7 @@ def new_prices(date, base_date=None):
     
     df2 = realized_prices(date, base_date=base_date)
     mdf = df2.join(df[["New Price"]]).dropna()
-    mdf["Pred PnL"] = mdf["Price"] - mdf["New Price"]
+    mdf["Pred PnL"] = mdf["New Price"] - mdf["Price"]
     return mdf[["Tenor", "Maturity", "Pred PnL"]]
 
 def all_prices(date):
