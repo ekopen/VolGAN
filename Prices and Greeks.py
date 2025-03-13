@@ -313,7 +313,7 @@ def swaption_change(date):
     p2 = p2.rename(columns={"Price": str(d2)})
 
     df = p1.merge(p2, on=["Tenor", "Maturity"], how="inner")
-    df["Swaption PnL"] = df[str(d1)] - df[str(d2)]
+    df["Swaption PnL"] =  df[str(d2)] - df[str(d1)]
     return df[["Tenor", "Maturity", str(d1), str(d2), "Swaption PnL"]]
 
 def hedge_strat(date):
