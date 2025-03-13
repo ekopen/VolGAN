@@ -185,7 +185,7 @@ def new_prices(date, base_date=None):
             date=date,
             T0=row["Maturity"],
             Ts=row["Tenor"],
-            sig=row["Vol"] / 100,
+            sig=row["Vol"] /10000,
             K=row["Strike"] / 100, 
             F=row["Forward"] / 100 + row[pd.to_datetime(date)])
         
@@ -213,7 +213,7 @@ def all_prices(date):
         bm = Bachelier_Model(Z, date,
                              T0=row["Maturity"],
                              Ts=row["Tenor"],
-                             sig=row["Vol"]/100,
+                             sig=row["Vol"]/10000,
                              K=row["Forward"]/100,
                              F=row["Forward"]/100)
         return bm.price()
@@ -238,7 +238,7 @@ def all_deltas(date):
         bm = Bachelier_Model(Z, date,
                              T0=row["Maturity"],
                              Ts=row["Tenor"],
-                             sig=row["Vol"]/100,
+                             sig=row["Vol"]/10000,
                              K=row["Forward"]/100,
                              F=row["Forward"]/100)
         return bm.delta()
@@ -290,7 +290,7 @@ def realized_prices(date, base_date=None):
             date=date,
             T0=row["Maturity"],
             Ts=row["Tenor"],
-            sig=row["Vol"] / 100,
+            sig=row["Vol"] /10000,
             K=row["Strike"] / 100,
             F=row["Forward"] / 100
         )
