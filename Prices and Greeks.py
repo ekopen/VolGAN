@@ -4,11 +4,8 @@ import matplotlib.pyplot as plt
 import statsmodels.api as sm
 import seaborn as sns
 import warnings
-import numpy as np
 import scipy.stats as stats
-from scipy.optimize import curve_fit
-from scipy.stats import norm
-from scipy.optimize import fsolve
+from scipy.optimize import curve_fit, fsolve
 warnings.filterwarnings("ignore")
 import Inputs
 
@@ -18,53 +15,28 @@ from treasury_cmds import *
 
 
 def data_prep(filename):
-    usd_spot = pd.read_excel(filename).iloc[1:, :].set_index("TENOR")
-
-    lst = []
-
-    for i in usd_spot.columns.values:
-        val = i[:-1]
-        term = i[-1:]
-
-        if term == "M":
-            lst.append(int(val) * 1/12)
-        elif term == "Y":
-            lst.append(int(val) * 1)
-
-    usd_spot.columns = lst
-    usd_spot = usd_spot/100
-    return usd_spot
+    df = pd.read_excel(filename).iloc[1:, :].set_index("TENOR")
+    df.columns = [int(col[:-1]) * (1/12 if col[-1] == "M" else 1)
+                  for col in df.columns]
+    return df/100
 
 def maturity_tenor(filename):
-    mat_n_ten = pd.read_csv(filename, nrows=2)
-    new_header = mat_n_ten.iloc[1]
+    header_df = pd.read_csv(filename, nrows=2)
+    new_header = header_df.iloc[1]
     
     df = pd.read_csv(filename, nrows=2, header=None)
     df.columns = new_header
     df.index = df["Ticker"]
-    df = df.iloc[:, 1:]
-    df = df.T
+    df = df.iloc[:, 1:].T
     
-    df["Tenor"] = 0
-    df["Mat"] = 0
-
-    for i in range(len(df)):
-        xT,yT = (int(df["TERM (TENOR)"][i][:-1]), df["TERM (TENOR)"][i][-1:])
-        xM,yM = (int(df["MATURITY (EXPIRY)"][i][:-1]), df["MATURITY (EXPIRY)"][i][-1:])
-
-        if yT == "M":
-            df["Tenor"][i] = xT * 1/12
-        elif yT == "Y":
-            df["Tenor"][i] = xT
-
-        if yM == "M":
-            df["Mat"][i] = xM * 1/12
-        elif yM == "Y":
-            df["Mat"][i] = xM
+    tenor_extract = df["TERM (TENOR)"].str.extract(r'(?P<val>\d+)(?P<unit>[MY])')
+    mat_extract = df["MATURITY (EXPIRY)"].str.extract(r'(?P<val>\d+)(?P<unit>[MY])')
     
-    df = df[["Tenor", "Mat"]]
-    df = df.T
-    return df
+    df["Tenor"] = tenor_extract["val"].astype(float) * tenor_extract["unit"].map({"M": 1/12, "Y": 1})
+    df["Mat"] = mat_extract["val"].astype(float) * mat_extract["unit"].map({"M": 1/12, "Y": 1})
+    
+    return df[["Tenor", "Mat"]].T
+
 
 class Bachelier_Model:
     def __init__(self, r, date, T0, Ts, sig, K, F):
@@ -75,88 +47,61 @@ class Bachelier_Model:
         self.F = F
         self.T0 = T0
         self.Ts = Ts
-        
-    def nelson_siegel(self, maturity, theta0, theta1, theta2, lambda1):
-        rate = theta0 + (theta1 + theta2) * (1 - np.exp(-maturity/lambda1))/(maturity/lambda1) - theta2 * np.exp(-maturity/lambda1)
-
-        return rate
+        self.params = self.ns_params()
+    
+    @staticmethod
+    def nelson_siegel(maturity, theta0, theta1, theta2, lambda1):
+        return theta0 + (theta1 + theta2) * (1 - np.exp(-maturity/lambda1))/(maturity/lambda1) - theta2 * np.exp(-maturity/lambda1)
     
     def ns_params(self):
-        r = self.df.loc[self.date].dropna()
-
-        if isinstance(r, pd.DataFrame):
-            r = r.squeeze()
-
-        time_points = r.index.to_numpy(dtype=float)
-        rate_values = r.to_numpy(dtype=float)
-        
+        r_series = self.df.loc[self.date].dropna()
+        if isinstance(r_series, pd.DataFrame):
+            r_series = r_series.squeeze()
+        time_points = r_series.index.to_numpy(dtype=float)
+        rate_values = r_series.to_numpy(dtype=float)
         initial_guess = [np.mean(rate_values), -1, 1, 2]
         params, _ = curve_fit(self.nelson_siegel, time_points, rate_values, p0=initial_guess)
-        
         return params
 
     def price(self):
-        p = 0
         norm_dist = stats.norm()
         d = (self.F - self.K) / (self.sig * np.sqrt(self.T0))
-        
-        params = self.ns_params()
-        
-        for i in np.arange(self.T0 + 0.25, self.Ts + self.T0 + 0.25, 0.25):
-            r_interp = self.nelson_siegel(i, *params)
-
-            term1 = (self.F - self.K) * norm_dist.cdf(d)
-            term2 = (self.sig * np.sqrt(self.T0)) * norm_dist.pdf(d)
-
-            Z = np.exp(-r_interp * i)
-            p += Z * (term1 + term2)
-        
-
-        return p
+        times = np.arange(self.T0 + 0.25, self.Ts + self.T0 + 0.25, 0.25)
+        r_interp = self.nelson_siegel(times, *self.params)
+        Z = np.exp(-r_interp * times)
+        term1 = (self.F - self.K) * norm_dist.cdf(d)
+        term2 = (self.sig * np.sqrt(self.T0)) * norm_dist.pdf(d)
+        return np.sum(Z * (term1 + term2))
     
     def delta(self):
-        d = (self.F - self.K) / (self.sig * np.sqrt(self.T0))
         norm_dist = stats.norm()
-        params = self.ns_params()
-        Zs = 0
-        
-        for i in np.arange(self.T0 + 0.25, self.Ts + self.T0 + 0.25, 0.25):
-            r_interp = self.nelson_siegel(i, *params)
-
-            Z = np.exp(-r_interp * i)
-            Zs += Z
-        
-        return norm_dist.cdf(d) #* Zs
+        d = (self.F - self.K) / (self.sig * np.sqrt(self.T0))
+        times = np.arange(self.T0 + 0.25, self.Ts + self.T0 + 0.25, 0.25)
+        r_interp = self.nelson_siegel(times, *self.params)
+        Z = np.exp(-r_interp * times)
+        Zs = np.sum(Z)
+        return norm_dist.cdf(d) * Zs
     
     def gamma(self):
-        d = (self.F - self.K) / (self.sig * np.sqrt(self.T0))
         norm_dist = stats.norm()
+        d = (self.F - self.K) / (self.sig * np.sqrt(self.T0))
         fd = 1/(self.sig * np.sqrt(self.T0))
-        Zs = 0
-        
-        for i in np.arange(self.T0 + 0.25, self.Ts + self.T0 + 0.25, 0.25):
-            r_interp = self.nelson_siegel(i, *params)
-
-            Z = np.exp(-r_interp * i)
-            Zs += Z
-        
-        return fd * norm_dist.pdf(d) #* Zs
+        times = np.arange(self.T0 + 0.25, self.Ts + self.T0 + 0.25, 0.25)
+        r_interp = self.nelson_siegel(times, *self.params)
+        Z = np.exp(-r_interp * times)
+        Zs = np.sum(Z)
+        return fd * norm_dist.pdf(d) * Zs
     
     def vega(self):
-        d = (self.F - self.K) / (self.sig * np.sqrt(self.T0))
         norm_dist = stats.norm()
+        d = (self.F - self.K) / (self.sig * np.sqrt(self.T0))
         fd = np.sqrt(self.T0)
-        Zs = 0
-        
-        for i in np.arange(self.T0 + 0.25, self.Ts + self.T0 + 0.25, 0.25):
-            r_interp = self.nelson_siegel(i, *params)
+        times = np.arange(self.T0 + 0.25, self.Ts + self.T0 + 0.25, 0.25)
+        r_interp = self.nelson_siegel(times, *self.params)
+        Z = np.exp(-r_interp * times)
+        Zs = np.sum(Z)
+        return fd * norm_dist.pdf(d)*Zs
 
-            Z = np.exp(-r_interp * i)
-            Zs += Z
-        
-        return fd * norm_dist.pdf(d) #* Zs
-    
-#Assuming n = 4 and that we are paying fixed
 class Forward_Swap:
     def __init__(self, df, date, cpn, ytm, T0, Ts):
         self.df = df
@@ -165,281 +110,225 @@ class Forward_Swap:
         self.ytm = ytm
         self.T0 = T0
         self.Ts = Ts
+        self.params = self.ns_params()
     
-    def nelson_siegel(self, maturity, theta0, theta1, theta2, lambda1):
-        rate = theta0 + (theta1 + theta2) * (1 - np.exp(-maturity/lambda1))/(maturity/lambda1) - theta2 * np.exp(-maturity/lambda1)
-
-        return rate
+    @staticmethod
+    def nelson_siegel(maturity, theta0, theta1, theta2, lambda1):
+        return theta0 + (theta1 + theta2) * (1 - np.exp(-maturity/lambda1))/(maturity/lambda1) - theta2 * np.exp(-maturity/lambda1)
     
     def ns_params(self):
-        r = self.df.loc[self.date].dropna()
-
-        if isinstance(r, pd.DataFrame):
-            r = r.squeeze()
-
-        time_points = r.index.to_numpy(dtype=float)
-        rate_values = r.to_numpy(dtype=float)
-        
+        r_series = self.df.loc[self.date].dropna()
+        if isinstance(r_series, pd.DataFrame):
+            r_series = r_series.squeeze()
+        time_points = r_series.index.to_numpy(dtype=float)
+        rate_values = r_series.to_numpy(dtype=float)
         initial_guess = [np.mean(rate_values), -1, 1, 2]
         params, _ = curve_fit(self.nelson_siegel, time_points, rate_values, p0=initial_guess)
-        
         return params
     
     def forward_floating_bond(self):
-        params = self.ns_params()
-        r0 = self.nelson_siegel(self.T0, *params)
-        Z0 = 1/ (1 + r0/4) ** (self.T0 * 4)
-        
-        price = 0
-
-        for i in np.arange(1/4, self.T0 + self.Ts + 1/4, 1/4):
-            if i > self.T0:
-                z = 1 / (1 + self.cpn/4) ** (4 * (i))
-                val = self.cpn * 100 * z/4
-                price += val
-
-        price += (100) / ((1 + self.cpn/4) ** (4 * (self.T0 + self.Ts)))
-
-        return price/Z0
+        r0 = self.nelson_siegel(self.T0, *self.params)
+        Z0 = 1 / (1 + r0/4) ** (self.T0 * 4)
+        times = np.arange(1/4, self.T0 + self.Ts + 1/4, 1/4)
+        mask = times > self.T0
+        z = 1 / (1 + self.cpn/4) ** (4 * times[mask])
+        price = np.sum(self.cpn * 100 * z / 4)
+        price += 100 / ((1 + self.cpn/4) ** (4 * (self.T0 + self.Ts)))
+        return price / Z0
     
     def forward_bond(self):
-        params = self.ns_params()
-        r0 = self.nelson_siegel(self.T0, *params)
-        Z0 = 1/ (1 + r0/4) ** (self.T0 * 4)
-        
-        price = 0
-
-        for i in np.arange(1/4, self.T0 + self.Ts + 1/4, 1/4):
-            if i > self.T0:
-                z = 1 / (1 + self.ytm/4) ** (4 * (i))
-                val = self.cpn * 100 * z/4
-                price += val
-
-        price += (100) / ((1 + self.ytm/4) ** (4 * (self.T0 + self.Ts)))
-
-        return price/Z0
+        r0 = self.nelson_siegel(self.T0, *self.params)
+        Z0 = 1 / (1 + r0/4) ** (self.T0 * 4)
+        times = np.arange(1/4, self.T0 + self.Ts + 1/4, 1/4)
+        mask = times > self.T0
+        z = 1 / (1 + self.ytm/4) ** (4 * times[mask])
+        price = np.sum(self.cpn * 100 * z / 4)
+        price += 100 / ((1 + self.ytm/4) ** (4 * (self.T0 + self.Ts)))
+        return price / Z0
     
     def price(self):
-        fl = self.forward_floating_bond()
-        fi = self.forward_bond()
-        
-        return fl - fi
-                
-        
-        
-        
+        return self.forward_floating_bond() - self.forward_bond()
 
-    
 
-filename = "generated_surfaces_test_new.csv"   
-    
-gen_s = pd.read_csv(filename, skiprows = 2).set_index("Ticker")
-forward_swap = pd.read_excel(filepath, skiprows = 2).set_index("Ticker")
-returns = pd.read_excel("generated_returns.xlsx", skiprows = 2).set_index("Ticker").iloc[1:, :]/10000
+filename = "generated_surfaces_mean.csv"
+filepath = "forward_sofr_swap_full.xlsx"
+filepath2 = "swaption_atm_vol_full.xlsx"
+gen_s = pd.read_csv(filename, skiprows=2).set_index("Ticker")
+forward_swap = pd.read_excel(filepath, skiprows=2).set_index("Ticker").sort_index()
+atm_vol = pd.read_excel(filepath2, skiprows=2).set_index("Ticker").sort_index()
+returns = pd.read_csv("generated_returns_mean.csv", skiprows=2).set_index("Ticker").iloc[1:, :]/100
+returns.index = pd.to_datetime(returns.index)
+mat_n_ten1 = maturity_tenor("generated_surfaces_test_new.csv").T
 
-mat_n_ten1 = maturity_tenor(filename).T
-
-    
-def new_prices(date):
-    d1 = pd.DataFrame(forward_swap.loc[date])
+def new_prices(date, base_date=None):
+    r = pd.DataFrame(returns.loc[pd.to_datetime(date)]).iloc[:-1]
     d2 = pd.DataFrame(gen_s.loc[date]).iloc[:-1]
-    date1 = pd.to_datetime(date)
-
     df = d2.copy()
     df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
-    df.columns = ["Forward", "Tenor", "Maturity"]
-
+    df.columns = ["Forward", "Maturity", "Tenor"]
     df["Vol"] = d2.values
-    
+    df = df.join(r).dropna()
+
     Z = data_prep("usd_sofr_curve_full.xlsx")
     
-    BM = Bachelier_Model(Z, date, 0, 0, 0, 0, 0)
-    lst = []
+    if base_date is not None:
+        base_d2 = pd.DataFrame(gen_s.loc[base_date]).iloc[:-1]
+        base_df = base_d2.copy()
+        base_df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
+        base_df.columns = ["Strike", "Maturity", "Tenor"]
+        df["Strike"] = base_df["Strike"].values
+    else:
+        df["Strike"] = df["Forward"]
     
-    for i in range(len(df)):
-        BM.sig = df["Vol"].iloc[i]/100
-        BM.F = df["Forward"].iloc[i]/100
-        BM.K = df["Forward"].iloc[i]/100
-        BM.T0 = df["Maturity"].iloc[i]
-        BM.Ts = df["Tenor"].iloc[i]
+    def calc_price(row):
+        bm = Bachelier_Model(
+            r=Z,
+            date=date,
+            T0=row["Maturity"],
+            Ts=row["Tenor"],
+            sig=row["Vol"] /10000,
+            K=row["Strike"] / 100, 
+            F=row["Forward"] / 100 + row[pd.to_datetime(date)])
         
-        lst.append(BM.price())
+        return bm.price()
     
-    df["New Price"] = lst
-    df = df[["Tenor", "Maturity", "New Price"]]
+    df["New Price"] = df.apply(calc_price, axis=1)
+    df = df[["Tenor", "Maturity", "New Price", "Strike", "Forward", "Vol"]]
     
-    df2 = realized_prices(date)
+    df2 = realized_prices(date, base_date=base_date)
     mdf = df2.join(df[["New Price"]]).dropna()
     mdf["Pred PnL"] = mdf["New Price"] - mdf["Price"]
-    
     return mdf[["Tenor", "Maturity", "Pred PnL"]]
 
 def all_prices(date):
-    r = pd.DataFrame(returns.loc[pd.to_datetime(date)]).iloc[:-1]
-    d1 = pd.DataFrame(forward_swap.loc[date])
     d2 = pd.DataFrame(gen_s.loc[date]).iloc[:-1]
-
     df = d2.copy()
     df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
-    df.columns = ["Forward", "Tenor", "Maturity"]
- 
-
+    display(df)
+    df.columns = ["Forward", "Maturity", "Tenor"]
     df["Vol"] = d2.values
-    df = df.join(r).dropna()
     
     Z = data_prep("usd_sofr_curve_full.xlsx")
-    d1 = pd.to_datetime(date)
     
-    BM = Bachelier_Model(Z, date, 0, 0, 0, 0, 0)
-    lst = []
+    def calc_price(row):
+        bm = Bachelier_Model(Z, date,
+                             T0=row["Maturity"],
+                             Ts=row["Tenor"],
+                             sig=row["Vol"]/10000,
+                             K=row["Forward"]/100,
+                             F=row["Forward"]/100)
+        return bm.price()
     
-    for i in range(len(df)):
-        BM.sig = df["Vol"].iloc[i]/100
-        BM.F = df["Forward"].iloc[i]/100 + df[d1].iloc[i]
-        BM.K = df["Forward"].iloc[i]/100
-        BM.T0 = df["Maturity"].iloc[i]
-        BM.Ts = df["Tenor"].iloc[i]
-        
-        lst.append(BM.price())
-    
-    df["Price"] = lst
-    df = df[["Tenor", "Maturity", "Price"]]
-    
-    return df
-
+    df["Price"] = df.apply(calc_price, axis=1)
+    return df[["Tenor", "Maturity", "Price"]]
 
 def grid_prices(date):
     df = all_prices(date)
     grid = df.pivot(index='Tenor', columns="Maturity", values='Price')
     return grid
 
-#Delta using Bachelier
-filename = "swaption_atm_vol_full.xlsx"   
-    
-atm_vol = pd.read_excel(filename, skiprows = 2).set_index("Ticker")
-forward_swap = pd.read_excel(filepath, skiprows = 2).set_index("Ticker")
-forward_swap.index = pd.to_datetime(forward_swap.index)
-
 def all_deltas(date):
-    d1 = pd.DataFrame(forward_swap.loc[date])
     d2 = pd.DataFrame(atm_vol.loc[date])
-
     df = d2.copy()
     df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
-    df.columns = ["Forward", "Tenor", "Maturity"]
-
+    df.columns = ["Forward", "Maturity", "Tenor"]
     df["Vol"] = d2.values
-    
     Z = data_prep("usd_sofr_curve_full.xlsx")
     
-    BM = Bachelier_Model(Z, date, 0, 0, 0, 0, 0)
-    lst = []
+    def calc_delta(row):
+        bm = Bachelier_Model(Z, date,
+                             T0=row["Maturity"],
+                             Ts=row["Tenor"],
+                             sig=row["Vol"]/10000,
+                             K=row["Forward"]/100,
+                             F=row["Forward"]/100)
+        return bm.delta()
     
-    for i in range(len(df)):
-        BM.sig = df["Vol"].iloc[i]/100
-        BM.F = df["Forward"].iloc[i]/100
-        BM.K = df["Forward"].iloc[i]/100
-        BM.T0 = df["Maturity"].iloc[i]
-        BM.Ts = df["Tenor"].iloc[i]
-        
-        lst.append(BM.delta())
-    
-    df["Delta"] = lst
-    
-    return df
-
-def realized_prices(date):
-    d1 = pd.DataFrame(forward_swap.loc[date])
-    d2 = pd.DataFrame(atm_vol.loc[date])
-
-    df = d2.copy()
-    df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
-    df.columns = ["Forward", "Tenor", "Maturity"]
-
-    df["Vol"] = d2.values
-    
-    Z = data_prep("usd_sofr_curve_full.xlsx")
-    
-    BM = Bachelier_Model(Z, date, 0, 0, 0, 0, 0)
-    lst = []
-    
-    for i in range(len(df)):
-        BM.sig = df["Vol"].iloc[i]/100
-        BM.F = df["Forward"].iloc[i]/100
-        BM.K = df["Forward"].iloc[i]/100
-        BM.T0 = df["Maturity"].iloc[i]
-        BM.Ts = df["Tenor"].iloc[i]
-        
-        lst.append(BM.price())
-    
-    df["Price"] = lst
-    
-    return df
+    df["Delta"] = df.apply(calc_delta, axis=1)
+    return df[["Tenor", "Maturity", "Delta"]]
 
 def underlying_PnL(date):
-    i = forward_swap.index.get_loc(date)
-
-    
-    d2 = pd.DataFrame(forward_swap.iloc[i, :])
-    d1 = pd.DataFrame(forward_swap.iloc[i + 1, :])
-    
+    idx = forward_swap.index.get_loc(date)
+    d2 = pd.DataFrame(forward_swap.iloc[idx, :])
+    d1 = pd.DataFrame(forward_swap.iloc[idx + 1, :])
     df = d1.join(d2)/100
     df.columns = ["CPN", "YTM"]
     d3 = all_deltas(date).iloc[:-1]
     d3.index = df.index
-    
     df = d3[["Maturity", "Tenor"]].join(df)
     Z = data_prep("usd_sofr_curve_full.xlsx")
     
     FS = Forward_Swap(Z, date, 0, 0, 0, 0)
-    ps = []
+    def calc_swap(row):
+        fs = Forward_Swap(Z, date,
+                          cpn=row["CPN"],
+                          ytm=row["YTM"],
+                          T0=row["Maturity"],
+                          Ts=row["Maturity"])
+        return fs.price()
     
-    for i in range(len(df)):
-        FS.cpn = df["CPN"].iloc[i]
-        FS.ytm = df["YTM"].iloc[i]
-        FS.T0 = df["Maturity"].iloc[i]
-        FS.Ts = df["Maturity"].iloc[i]
-        
-        ps.append(FS.price())
-    
-    df["Swap PnL"] = ps
-    
+    df["Swap PnL"] = df.apply(calc_swap, axis=1)
     return df[["Maturity", "Tenor", "Swap PnL"]]
+
+def realized_prices(date, base_date=None):
+    d2 = pd.DataFrame(atm_vol.loc[date])
+    df = d2.copy()
+    df[["Maturity", "Tenor"]] = mat_n_ten1[["Mat", "Tenor"]]
+    df.columns = ["Forward", "Maturity", "Tenor"]
+    df["Vol"] = d2.values
+
+    if base_date is not None:
+        base_df = pd.DataFrame(atm_vol.loc[base_date])
+        df["Strike"] = base_df.values
+    else:
+        df["Strike"] = df["Forward"]
+
+    Z = data_prep("usd_sofr_curve_full.xlsx")
+    
+    def calc_price(row):
+        bm = Bachelier_Model(
+            r=Z,
+            date=date,
+            T0=row["Maturity"],
+            Ts=row["Tenor"],
+            sig=row["Vol"] /10000,
+            K=row["Strike"] / 100,
+            F=row["Forward"] / 100
+        )
+        return bm.price()
+    
+    df["Price"] = df.apply(calc_price, axis=1)
+    return df[["Tenor", "Maturity", "Forward", "Vol", "Strike", "Price"]]
+
 
 def swaption_change(date):
     i = forward_swap.index.get_loc(date)
-    
     d1 = forward_swap.index.values[i]
     d2 = forward_swap.index.values[i+1]
-    
-    p1 = realized_prices(d1)[["Tenor", "Maturity", "Price"]]
-    p1 = p1.rename(columns = {"Price": d1})
-    p2 = realized_prices(d2)[["Tenor", "Maturity", "Price"]]
-    p2 = p2.rename(columns = {"Price": d2})
-    
+
+    p1 = realized_prices(d1, base_date=None)
+    p1 = p1.rename(columns={"Price": str(d1)})
+
+    p2 = realized_prices(d2, base_date=d1)
+    p2 = p2.rename(columns={"Price": str(d2)})
+
     df = p1.merge(p2, on=["Tenor", "Maturity"], how="inner")
-    df["Swaption PnL"] = df[d1] - df[d2]
-    
-    return df[["Tenor", "Maturity", "Swaption PnL"]]
+    df["Swaption PnL"] =  df[str(d2)] - df[str(d1)]
+    return df[["Tenor", "Maturity", str(d1), str(d2), "Swaption PnL"]]
 
 def hedge_strat(date):
     d = all_deltas(date)[["Tenor", "Maturity", "Delta"]]
     sc = swaption_change(date)
     up = underlying_PnL(date)
-    
     df = d.merge(sc, on=["Tenor", "Maturity"], how="inner")
     df2 = df.merge(up, on=["Tenor", "Maturity"], how="inner")
-    
-    df2["Swap Pos"] = df2["Delta"] * df2["Swap PnL"]
+    df2["Swap Pos"] = df2["Delta"] * df2["Swaption PnL"]
     df2["Total Pos"] = df2["Swaption PnL"] - df2["Swap Pos"]
-    
     return df2[["Tenor", "Maturity", "Total Pos"]]
 
 def pred_strat(date):
     sc = swaption_change(date)
     pc = new_prices(date)
-    
     df = pc.merge(sc, on=["Tenor", "Maturity"], how="inner")
     df["Total Pos"] = df["Swaption PnL"] - df["Pred PnL"]
-    
     return df[["Tenor", "Maturity", "Total Pos"]]
